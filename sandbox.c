@@ -332,12 +332,21 @@ int setup_sandbox_environment(void)
 int sandbox_main(void *arg)
 {
     (void)arg;
-    char *const args[] = {"/bin/sh", NULL};
 
     if (setup_sandbox_environment() < 0)
         return 1;
-    execv("/bin/sh", args);
-    perror("execv");
+
+    if (target_name[0] != '\0') {
+        char target_path[PATH_MAX];
+        snprintf(target_path, sizeof(target_path), "/usr/bin/%s", target_name);
+        char *const args[] = {target_path, NULL};
+        execv(target_path, args);
+        perror("execv");
+    } else {
+        char *const args[] = {"/bin/sh", NULL};
+        execv("/bin/sh", args);
+        perror("execv");
+    }
     return 1;
 }
 
