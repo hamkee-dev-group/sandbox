@@ -22,6 +22,8 @@
 static char child_stack[STACK_SIZE];
 char *rootfs;
 char target_name[PATH_MAX];
+int target_argc = 0;
+char *target_args[64];
 int drop_to_nobody = 0;
 int trace_mode = 0;
 
@@ -339,7 +341,12 @@ int sandbox_main(void *arg)
     if (target_name[0] != '\0') {
         char target_path[PATH_MAX];
         snprintf(target_path, sizeof(target_path), "/usr/bin/%s", target_name);
-        char *const args[] = {target_path, NULL};
+        char *args[66];
+        int j = 0;
+        args[j++] = target_path;
+        for (int i = 0; i < target_argc && j < 65; i++)
+            args[j++] = target_args[i];
+        args[j] = NULL;
         execv(target_path, args);
         perror("execv");
     } else {
@@ -392,10 +399,13 @@ int build_rootfs(const char *bin)
     snprintf(dst, sizeof(dst), "%s/usr/bin/strace", rootfs);
     if (copy_file("/usr/bin/strace", dst) < 0)
     {
-        fprintf(stderr, "Failed to copy strace\n");
-        return -1;
+        if (trace_mode) {
+            fprintf(stderr, "Failed to copy strace (required for --trace)\n");
+            return -1;
+        }
+    } else {
+        copy_ldd_deps("/usr/bin/strace", rootfs);
     }
-    copy_ldd_deps("/usr/bin/strace", rootfs);
     if (create_dev_nodes(rootfs) < 0 || create_etc_files(rootfs) < 0)
         return -1;
     return 0;
@@ -462,8 +472,11 @@ int main(int argc, char **argv)
         } else if (!target) {
             target = argv[i];
         } else {
-            fprintf(stderr, "Unknown argument: %s\n", argv[i]);
-            return 1;
+            if (target_argc >= 64) {
+                fprintf(stderr, "Too many target arguments\n");
+                return 1;
+            }
+            target_args[target_argc++] = argv[i];
         }
     }
     if (drop_to_nobody && trace_mode) {
