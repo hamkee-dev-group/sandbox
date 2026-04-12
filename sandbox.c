@@ -148,15 +148,42 @@ int copy_file(const char *src, const char *dst)
 
 void copy_ldd_deps(const char *bin, const char *root)
 {
-    char cmd[PATH_MAX];
     char line[PATH_MAX];
-    FILE *fp;
+    int pipefd[2];
+    pid_t pid;
 
-    snprintf(cmd, sizeof(cmd), "ldd %s", bin);
-    fp = popen(cmd, "r");
+    if (pipe(pipefd) == -1)
+    {
+        perror("pipe");
+        return;
+    }
+
+    pid = fork();
+    if (pid == -1)
+    {
+        perror("fork");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return;
+    }
+
+    if (pid == 0)
+    {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        execlp("ldd", "ldd", bin, (char *)NULL);
+        perror("execlp ldd");
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    FILE *fp = fdopen(pipefd[0], "r");
     if (!fp)
     {
-        perror("popen ldd");
+        perror("fdopen");
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
         return;
     }
 
@@ -174,7 +201,8 @@ void copy_ldd_deps(const char *bin, const char *root)
         copy_file(start, dst);
     }
 
-    pclose(fp);
+    fclose(fp);
+    waitpid(pid, NULL, 0);
 }
 
 int copy_extras(const char *listfile)
