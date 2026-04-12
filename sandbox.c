@@ -519,6 +519,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "--user is not compatible with --trace.\n");
         return 1;
     }
+    if (trace_mode && !target) {
+        fprintf(stderr, "--trace requires a target binary.\n");
+        return 1;
+    }
 
     if (!target) {
         if (setup_essential_environment(rootfs) < 0) {

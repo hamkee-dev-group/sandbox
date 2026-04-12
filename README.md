@@ -24,7 +24,8 @@
 usage:
 
 ```bash
-sudo ./sandbox <rootfs> [<target-binary>] [--user] [--extras <file>] [--trace <args...>]
+sudo ./sandbox <rootfs> [<target-binary>] [--user] [--extras <file>]
+sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
 ```
 
 ### Modes
@@ -42,6 +43,7 @@ sudo ./sandbox <rootfs> [<target-binary>] [--user] [--extras <file>] [--trace <a
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
     ```
+    - `--trace` requires a target binary and cannot be combined with `--user`.
 - **Sandbox as unprivileged user (`nobody`):**
     ```bash
     sudo ./sandbox /tmp/mychroot --user
