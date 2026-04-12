@@ -45,12 +45,19 @@ const char *essential_bins[] = {
     "/usr/bin/du",
     NULL
 };
-void drop_all_caps(void) {
+int drop_all_caps(void) {
     cap_t caps = cap_init();
-    if (caps) {
-        cap_set_proc(caps);  // drop all capabilities
-        cap_free(caps);
+    if (!caps) {
+        perror("cap_init");
+        return -1;
     }
+    if (cap_set_proc(caps) == -1) {
+        perror("cap_set_proc");
+        cap_free(caps);
+        return -1;
+    }
+    cap_free(caps);
+    return 0;
 }
 int is_binary(const char *path) {
     struct stat st;
@@ -355,7 +362,8 @@ int setup_sandbox_environment(void)
 
     unsetenv("LC_ALL");
     unsetenv("LANG");
-    drop_all_caps(); 
+    if (drop_all_caps() < 0)
+        return -1;
     return 0;
 }
 
