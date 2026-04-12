@@ -20,6 +20,43 @@
 
 ---
 
+## Prerequisites
+
+### Build (mandatory)
+
+- A **C compiler** (`gcc` or `clang`)
+- **libcap** development headers and library — provides `<sys/capability.h>` and `-lcap`
+
+  ```bash
+  # Debian / Ubuntu
+  sudo apt install build-essential libcap-dev
+
+  # Fedora / RHEL
+  sudo dnf install gcc libcap-devel
+
+  # Arch
+  sudo pacman -S base-devel libcap
+  ```
+
+### Runtime
+
+- **Root privileges** — required for all modes (namespaces, chroot, mounts).
+- **`/usr/bin/ldd`** — used by every mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
+- **`/usr/bin/strace`** (trace mode only) — `--trace` hard-fails if strace is not present on the host.
+
+  ```bash
+  # Debian / Ubuntu
+  sudo apt install strace
+
+  # Fedora / RHEL
+  sudo dnf install strace
+
+  # Arch
+  sudo pacman -S strace
+  ```
+
+---
+
 ## Usage
 usage:
 
