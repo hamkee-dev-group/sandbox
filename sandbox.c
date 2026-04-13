@@ -541,11 +541,14 @@ int main(int argc, char **argv)
         }
         int status;
         waitpid(pid, &status, 0);
-        if (WIFEXITED(status))
+        if (WIFEXITED(status)) {
             fprintf(stderr, "[sandbox exited with %d]\n", WEXITSTATUS(status));
-        else if (WIFSIGNALED(status))
+            return WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
             fprintf(stderr, "[sandbox killed by signal %d]\n", WTERMSIG(status));
-        return 0;
+            return 128 + WTERMSIG(status);
+        }
+        return 1;
     }
 
     if (!is_binary(target)) {
@@ -620,7 +623,11 @@ int main(int argc, char **argv)
         }
         fclose(fp);
         unlink(strace_path);
-        return 0;
+        if (WIFEXITED(status))
+            return WEXITSTATUS(status);
+        else if (WIFSIGNALED(status))
+            return 128 + WTERMSIG(status);
+        return 1;
     }
 
     // Normal sandboxed run (with or without --user)
@@ -632,10 +639,13 @@ int main(int argc, char **argv)
     }
     int status;
     waitpid(pid, &status, 0);
-    if (WIFEXITED(status))
+    if (WIFEXITED(status)) {
         fprintf(stderr, "[sandbox exited with %d]\n", WEXITSTATUS(status));
-    else if (WIFSIGNALED(status))
+        return WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
         fprintf(stderr, "[sandbox killed by signal %d]\n", WTERMSIG(status));
-    return 0;
+        return 128 + WTERMSIG(status);
+    }
+    return 1;
 }
 
