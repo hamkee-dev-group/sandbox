@@ -574,8 +574,8 @@ int main(int argc, char **argv)
         if (pid == 0) {
             char *cmd_argv[64] = {"/usr/bin/strace", "-f", "-e", "trace=file", "-o", tmpfile};
             int num_trace_args = argc - (trace_idx + 1);
-            if (num_trace_args + 7 > 64) {
-                fprintf(stderr, "Too many arguments for --trace (max %d)\n", 64 - 7);
+            if (num_trace_args + 8 > 64) {
+                fprintf(stderr, "Too many arguments for --trace (max %d)\n", 64 - 8);
                 return -1;
             }
             int j = 6;
