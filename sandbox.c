@@ -582,13 +582,13 @@ int main(int argc, char **argv)
                 return -1;
             }
             int j = 6;
-            cmd_argv[j++] = malloc(strlen(target) + 1);
-            sprintf(cmd_argv[j - 1], "%s", target);
+            char trace_target[PATH_MAX];
+            snprintf(trace_target, sizeof(trace_target), "/usr/bin/%s", target_name);
+            cmd_argv[j++] = trace_target;
             for (int k = trace_idx + 1; k < argc; ++k)
                 cmd_argv[j++] = argv[k];
             cmd_argv[j] = NULL;
             sandbox_exec(cmd_argv);
-            free(cmd_argv[6]);
             _exit(1);
         }
         int status;
