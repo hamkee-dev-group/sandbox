@@ -455,6 +455,23 @@ int build_rootfs(const char *bin)
         fprintf(stderr, "Failed to copy target binary\n");
         return -1;
     }
+    if (bin[0] == '/' && strcmp(dst + strlen(rootfs), bin) != 0) {
+        char abs_dst[PATH_MAX];
+        snprintf(abs_dst, sizeof(abs_dst), "%s%s", rootfs, bin);
+        char *slash = strrchr(abs_dst, '/');
+        if (slash) {
+            *slash = '\0';
+            if (mkdir_p(abs_dst, 0755) < 0) {
+                fprintf(stderr, "mkdir_p failed: %s\n", abs_dst);
+                return -1;
+            }
+            *slash = '/';
+        }
+        if (copy_file(bin, abs_dst) < 0) {
+            fprintf(stderr, "Failed to copy target to %s\n", abs_dst);
+            return -1;
+        }
+    }
     snprintf(dst, sizeof(dst), "%s/bin/sh", rootfs);
     if (copy_file("/bin/sh", dst) < 0)
     {
@@ -614,7 +631,10 @@ int main(int argc, char **argv)
             return -1;
         }
         static char trace_target[PATH_MAX];
-        snprintf(trace_target, sizeof(trace_target), "/usr/bin/%s", target_name);
+        if (target[0] == '/')
+            snprintf(trace_target, sizeof(trace_target), "%s", target);
+        else
+            snprintf(trace_target, sizeof(trace_target), "/usr/bin/%s", target_name);
         trace_argv[0] = "/usr/bin/strace";
         trace_argv[1] = "-f";
         trace_argv[2] = "-e";
