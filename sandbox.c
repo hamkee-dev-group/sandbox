@@ -155,7 +155,7 @@ int copy_file(const char *src, const char *dst)
     return 0;
 }
 
-void copy_ldd_deps(const char *bin, const char *root)
+int copy_ldd_deps(const char *bin, const char *root)
 {
     char line[PATH_MAX];
     int pipefd[2];
@@ -164,7 +164,7 @@ void copy_ldd_deps(const char *bin, const char *root)
     if (pipe(pipefd) == -1)
     {
         perror("pipe");
-        return;
+        return -1;
     }
 
     pid = fork();
@@ -173,7 +173,7 @@ void copy_ldd_deps(const char *bin, const char *root)
         perror("fork");
         close(pipefd[0]);
         close(pipefd[1]);
-        return;
+        return -1;
     }
 
     if (pid == 0)
@@ -193,11 +193,17 @@ void copy_ldd_deps(const char *bin, const char *root)
         perror("fdopen");
         close(pipefd[0]);
         waitpid(pid, NULL, 0);
-        return;
+        return -1;
     }
 
+    int ret = 0;
     while (fgets(line, sizeof(line), fp))
     {
+        if (strstr(line, "not found")) {
+            fprintf(stderr, "ldd: unresolved dependency: %s", line);
+            ret = -1;
+            continue;
+        }
         char *start = strchr(line, '/');
         if (!start)
             continue;
@@ -207,11 +213,20 @@ void copy_ldd_deps(const char *bin, const char *root)
 
         char dst[PATH_MAX];
         snprintf(dst, sizeof(dst), "%s%s", root, start);
-        copy_file(start, dst);
+        if (copy_file(start, dst) < 0) {
+            fprintf(stderr, "Failed to copy dependency: %s\n", start);
+            ret = -1;
+        }
     }
 
     fclose(fp);
-    waitpid(pid, NULL, 0);
+    int status;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "ldd failed for %s\n", bin);
+        ret = -1;
+    }
+    return ret;
 }
 
 int copy_extras(const char *listfile)
@@ -441,8 +456,10 @@ int build_rootfs(const char *bin)
         fprintf(stderr, "Failed to copy /bin/sh\n");
         return -1;
     }
-    copy_ldd_deps(bin, rootfs);
-    copy_ldd_deps("/bin/sh", rootfs);
+    if (copy_ldd_deps(bin, rootfs) < 0)
+        return -1;
+    if (copy_ldd_deps("/bin/sh", rootfs) < 0)
+        return -1;
     snprintf(dst, sizeof(dst), "%s/usr/bin/strace", rootfs);
     if (copy_file("/usr/bin/strace", dst) < 0)
     {
@@ -451,7 +468,8 @@ int build_rootfs(const char *bin)
             return -1;
         }
     } else {
-        copy_ldd_deps("/usr/bin/strace", rootfs);
+        if (copy_ldd_deps("/usr/bin/strace", rootfs) < 0)
+            return -1;
     }
     if (create_dev_nodes(rootfs) < 0 || create_etc_files(rootfs) < 0)
         return -1;
@@ -476,7 +494,8 @@ int setup_essential_environment(const char *root) {
             fprintf(stderr, "Failed to copy essential bin: %s\n", essential_bins[i]);
             continue;
         }
-        copy_ldd_deps(essential_bins[i], root);
+        if (copy_ldd_deps(essential_bins[i], root) < 0)
+            return -1;
     }
 
     if (create_dev_nodes(root) < 0)
