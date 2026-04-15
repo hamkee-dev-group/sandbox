@@ -27,6 +27,8 @@ char *target_args[64];
 int drop_to_nobody = 0;
 int trace_mode = 0;
 
+int sandbox_exec(char *const argv[]);
+
 const char *dirs[] = {"/bin", "/usr/bin", "/etc", "/proc", "/dev", "/tmp", NULL};
 const char *essential_bins[] = {
     "/bin/sh",
@@ -367,6 +369,15 @@ int setup_sandbox_environment(void)
     return 0;
 }
 
+static char *trace_argv[64];
+
+int trace_main(void *arg)
+{
+    (void)arg;
+    sandbox_exec(trace_argv);
+    _exit(1);
+}
+
 int sandbox_main(void *arg)
 {
     (void)arg;
@@ -573,23 +584,29 @@ int main(int argc, char **argv)
         }
         close(fd);
 
-        pid_t pid = fork();
-        if (pid == 0) {
-            char *cmd_argv[64] = {"/usr/bin/strace", "-f", "-e", "trace=file", "-o", tmpfile};
-            int num_trace_args = argc - (trace_idx + 1);
-            if (num_trace_args + 8 > 64) {
-                fprintf(stderr, "Too many arguments for --trace (max %d)\n", 64 - 8);
-                return -1;
-            }
-            int j = 6;
-            char trace_target[PATH_MAX];
-            snprintf(trace_target, sizeof(trace_target), "/usr/bin/%s", target_name);
-            cmd_argv[j++] = trace_target;
-            for (int k = trace_idx + 1; k < argc; ++k)
-                cmd_argv[j++] = argv[k];
-            cmd_argv[j] = NULL;
-            sandbox_exec(cmd_argv);
-            _exit(1);
+        int num_trace_args = argc - (trace_idx + 1);
+        if (num_trace_args + 8 > 64) {
+            fprintf(stderr, "Too many arguments for --trace (max %d)\n", 64 - 8);
+            return -1;
+        }
+        static char trace_target[PATH_MAX];
+        snprintf(trace_target, sizeof(trace_target), "/usr/bin/%s", target_name);
+        trace_argv[0] = "/usr/bin/strace";
+        trace_argv[1] = "-f";
+        trace_argv[2] = "-e";
+        trace_argv[3] = "trace=file";
+        trace_argv[4] = "-o";
+        trace_argv[5] = tmpfile;
+        int j = 6;
+        trace_argv[j++] = trace_target;
+        for (int k = trace_idx + 1; k < argc; ++k)
+            trace_argv[j++] = argv[k];
+        trace_argv[j] = NULL;
+        int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
+        pid_t pid = clone(trace_main, child_stack + STACK_SIZE, flags, NULL);
+        if (pid < 0) {
+            perror("clone");
+            return 1;
         }
         int status;
         waitpid(pid, &status, 0);
