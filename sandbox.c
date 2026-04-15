@@ -150,6 +150,11 @@ int copy_file(const char *src, const char *dst)
             written += w;
         }
     }
+    if (n < 0) {
+        close(in);
+        close(out);
+        return -1;
+    }
     close(in);
     close(out);
     return 0;
