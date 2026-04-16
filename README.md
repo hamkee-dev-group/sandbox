@@ -113,7 +113,7 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
 - **Capabilities** are dropped, so even root inside the sandbox is powerless
 - **No environment variables** (except a safe `PATH`)
 - **User `nobody`**: further restricts privilege for untrusted code (unless tracing)
-- **No seccomp**: intentionally left out for simplicity (easy to add)
+- **Seccomp** hardens the normal sandbox execution path with a small denylist; `--trace` is intentionally left unfiltered so `strace` can still run
 - **Not a container runtime**, but a tight, auditable educational sandbox
 
 ### Security tips
@@ -143,7 +143,7 @@ sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
 ## Limitations & Roadmap
 
 - Only works on Linux with root (needs namespaces, chroot, mounts)
-- No seccomp syscall filtering
+- Seccomp hardening applies only to the normal sandbox execution path, not `--trace`
 - No cgroup or resource limiting
 - No user namespace yet (for rootless operation)
 

@@ -4,7 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <stddef.h>
 #include <libgen.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <sched.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -14,6 +18,7 @@
 #include <sys/sysmacros.h>
 #include <sys/prctl.h>
 #include <sys/capability.h>
+#include <sys/syscall.h>
 
 
 
@@ -389,6 +394,43 @@ int setup_sandbox_environment(void)
     return 0;
 }
 
+int install_seccomp_filter(void)
+{
+#if defined(__x86_64__)
+    struct sock_filter filter[] = {
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+        BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, __X32_SYSCALL_BIT, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mount, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_umount2, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_pivot_root, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ptrace, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog prog = {
+        .len = (unsigned short)(sizeof(filter) / sizeof(filter[0])),
+        .filter = filter,
+    };
+
+    if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog) < 0)
+    {
+        perror("prctl(PR_SET_SECCOMP)");
+        return -1;
+    }
+    return 0;
+#else
+    fprintf(stderr, "seccomp filter is only implemented for x86_64\n");
+    return -1;
+#endif
+}
+
 static char *trace_argv[64];
 
 int trace_main(void *arg)
@@ -403,6 +445,8 @@ int sandbox_main(void *arg)
     (void)arg;
 
     if (setup_sandbox_environment() < 0)
+        return 1;
+    if (install_seccomp_filter() < 0)
         return 1;
 
     if (target_name[0] != '\0') {
@@ -709,4 +753,3 @@ int main(int argc, char **argv)
     }
     return 1;
 }
-
