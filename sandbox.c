@@ -478,8 +478,21 @@ int setup_sandbox_environment(void)
         return -1;
     }
 
-    unsetenv("LC_ALL");
-    unsetenv("LANG");
+    if (clearenv() != 0)
+    {
+        perror("clearenv");
+        return -1;
+    }
+    if (setenv("PATH", "/bin:/usr/bin", 1) < 0)
+    {
+        perror("setenv PATH");
+        return -1;
+    }
+    if (setenv("HOME", "/", 1) < 0)
+    {
+        perror("setenv HOME");
+        return -1;
+    }
     if (drop_all_caps() < 0)
         return -1;
     return 0;

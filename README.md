@@ -119,7 +119,7 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
 
 - **Namespaces** isolate filesystem, process IDs, and hostname from the host
 - **Capabilities**: the bounding set is cleared before the optional UID/GID drop, and all process capability sets are dropped afterward
-- **No environment variables** (except a safe `PATH`)
+- **No environment variables** (except `PATH=/bin:/usr/bin` and `HOME=/`)
 - **User `nobody`**: further restricts privilege for untrusted code (unless tracing)
 - **Seccomp** hardens the normal sandbox execution path on x86_64 with a small fail-closed allowlist; `--trace` is intentionally left unfiltered so `strace` can still run
 - **Not a container runtime**, but a tight, auditable educational sandbox
