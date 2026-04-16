@@ -40,7 +40,7 @@
 
 ### Runtime
 
-- **Root privileges** — required for all modes (namespaces, chroot, mounts).
+- **Root privileges** — required for all modes except `--userns` (namespaces, chroot, mounts).
 - **`/usr/bin/ldd`** — used by every mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
 - **`/usr/bin/strace`** (trace mode only) — `--trace` hard-fails if strace is not present on the host.
 
@@ -61,7 +61,7 @@
 usage:
 
 ```bash
-sudo ./sandbox <rootfs> [<target-binary>] [--user] [--extras <file>]
+sudo ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>]
 sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
 ```
 
@@ -86,6 +86,14 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
     sudo ./sandbox /tmp/mychroot --user
     ```
     - *Not compatible with `--trace`.*
+- **Rootless mode (user namespace):**
+    ```bash
+    ./sandbox /tmp/mychroot --userns
+    ./sandbox /tmp/mychroot /usr/bin/ls --userns
+    ```
+    - Runs without root by creating a user namespace. Requires `sysctl kernel.unprivileged_userns_clone=1` (or equivalent) on the host kernel.
+    - Device nodes (`/dev/null`, `/dev/zero`, `/dev/tty`) are bind-mounted from the host instead of created with `mknod`.
+    - *Not compatible with `--trace` or `--user`.*
 - **Add extra files:**
     ```bash
     sudo ./sandbox /tmp/mychroot --extras extras.txt
@@ -142,10 +150,10 @@ sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
 
 ## Limitations & Roadmap
 
-- Only works on Linux with root (needs namespaces, chroot, mounts)
+- Requires root unless `--userns` is used for rootless operation via user namespaces
 - Seccomp hardening applies only to the normal sandbox execution path, not `--trace`
 - No cgroup or resource limiting
-- No user namespace yet (for rootless operation)
+- `--userns` requires unprivileged user namespaces to be enabled on the host and cannot be combined with `--trace` or `--user`
 
 ---
 

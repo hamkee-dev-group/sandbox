@@ -31,6 +31,8 @@ int target_argc = 0;
 char *target_args[64];
 int drop_to_nobody = 0;
 int trace_mode = 0;
+int userns_mode = 0;
+int userns_pipe[2] = {-1, -1};
 
 int sandbox_exec(char *const argv[]);
 
@@ -84,6 +86,43 @@ int drop_all_caps(void) {
     cap_free(caps);
     return 0;
 }
+int write_uid_gid_map(pid_t child_pid)
+{
+    char path[64];
+    FILE *fp;
+    uid_t uid = getuid();
+    gid_t gid = getgid();
+
+    snprintf(path, sizeof(path), "/proc/%d/setgroups", child_pid);
+    fp = fopen(path, "w");
+    if (!fp) {
+        perror("open setgroups");
+        return -1;
+    }
+    fprintf(fp, "deny");
+    fclose(fp);
+
+    snprintf(path, sizeof(path), "/proc/%d/uid_map", child_pid);
+    fp = fopen(path, "w");
+    if (!fp) {
+        perror("open uid_map");
+        return -1;
+    }
+    fprintf(fp, "0 %d 1\n", uid);
+    fclose(fp);
+
+    snprintf(path, sizeof(path), "/proc/%d/gid_map", child_pid);
+    fp = fopen(path, "w");
+    if (!fp) {
+        perror("open gid_map");
+        return -1;
+    }
+    fprintf(fp, "0 %d 1\n", gid);
+    fclose(fp);
+
+    return 0;
+}
+
 int is_binary(const char *path) {
     struct stat st;
     int fd;
@@ -309,7 +348,14 @@ int create_dev_nodes(const char *root)
     for (int i = 0; devs[i].name; ++i)
     {
         snprintf(path, sizeof(path), "%s/dev/%s", root, devs[i].name);
-        if (mknod(path, S_IFCHR | 0666, makedev(devs[i].major, devs[i].minor)) < 0 && errno != EEXIST)
+        if (userns_mode) {
+            int fd = open(path, O_WRONLY | O_CREAT, 0666);
+            if (fd < 0 && errno != EEXIST) {
+                perror(devs[i].name);
+                return -1;
+            }
+            if (fd >= 0) close(fd);
+        } else if (mknod(path, S_IFCHR | 0666, makedev(devs[i].major, devs[i].minor)) < 0 && errno != EEXIST)
         {
             perror(devs[i].name);
             return -1;
@@ -380,6 +426,18 @@ int setup_sandbox_environment(void)
     }
     snprintf(proc_path, sizeof(proc_path), "%s/proc", rootfs);
     mkdir(proc_path, 0755);
+    if (userns_mode) {
+        const char *dev_names[] = {"null", "zero", "tty", NULL};
+        for (int i = 0; dev_names[i]; i++) {
+            char src[PATH_MAX], mnt[PATH_MAX];
+            snprintf(src, sizeof(src), "/dev/%s", dev_names[i]);
+            snprintf(mnt, sizeof(mnt), "%s/dev/%s", rootfs, dev_names[i]);
+            if (mount(src, mnt, NULL, MS_BIND, NULL) < 0) {
+                fprintf(stderr, "bind mount %s: %s\n", src, strerror(errno));
+                return -1;
+            }
+        }
+    }
     if (chroot(rootfs) < 0)
     {
         perror("chroot");
@@ -464,6 +522,16 @@ int trace_main(void *arg)
 int sandbox_main(void *arg)
 {
     (void)arg;
+
+    if (userns_mode) {
+        close(userns_pipe[1]);
+        char c;
+        if (read(userns_pipe[0], &c, 1) != 1) {
+            fprintf(stderr, "userns sync failed\n");
+            return 1;
+        }
+        close(userns_pipe[0]);
+    }
 
     if (setup_sandbox_environment() < 0)
         return 1;
@@ -597,14 +665,9 @@ int main(int argc, char **argv)
     int trace_idx = -1;
     const char *target = NULL;
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <rootfs> [<target-binary>] [--user] [--extras <file>] [--trace <args...>]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]\n", argv[0]);
         return 1;
     }
-    if (geteuid() != 0) {
-        fprintf(stderr, "This program must be run as root.\n");
-        return 1;
-    }
-
     rootfs = argv[1];
 
     if (strlen(rootfs) >= PATH_MAX - 64) {
@@ -615,6 +678,8 @@ int main(int argc, char **argv)
     for (int i = 2; i < argc; ++i) {
         if (strcmp(argv[i], "--user") == 0) {
             drop_to_nobody = 1;
+        } else if (strcmp(argv[i], "--userns") == 0) {
+            userns_mode = 1;
         } else if (strcmp(argv[i], "--trace") == 0) {
             trace_mode = 1;
             trace_idx = i;
@@ -632,8 +697,20 @@ int main(int argc, char **argv)
             target_args[target_argc++] = argv[i];
         }
     }
+    if (geteuid() != 0 && !userns_mode) {
+        fprintf(stderr, "This program must be run as root (or use --userns).\n");
+        return 1;
+    }
     if (drop_to_nobody && trace_mode) {
         fprintf(stderr, "--user is not compatible with --trace.\n");
+        return 1;
+    }
+    if (userns_mode && trace_mode) {
+        fprintf(stderr, "--userns is not compatible with --trace.\n");
+        return 1;
+    }
+    if (userns_mode && drop_to_nobody) {
+        fprintf(stderr, "--userns is not compatible with --user.\n");
         return 1;
     }
     if (trace_mode && !target) {
@@ -651,10 +728,25 @@ int main(int argc, char **argv)
             return 1;
         }
         int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
+        if (userns_mode) {
+            flags |= CLONE_NEWUSER;
+            if (pipe(userns_pipe) < 0) { perror("pipe"); return 1; }
+        }
         pid_t pid = clone(sandbox_main, child_stack + STACK_SIZE, flags, NULL);
         if (pid < 0) {
             perror("clone");
             return 1;
+        }
+        if (userns_mode) {
+            close(userns_pipe[0]);
+            if (write_uid_gid_map(pid) < 0) {
+                close(userns_pipe[1]);
+                waitpid(pid, NULL, 0);
+                return 1;
+            }
+            char c = 0;
+            (void)!write(userns_pipe[1], &c, 1);
+            close(userns_pipe[1]);
         }
         int status;
         waitpid(pid, &status, 0);
@@ -758,10 +850,25 @@ int main(int argc, char **argv)
 
     // Normal sandboxed run (with or without --user)
     int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
+    if (userns_mode) {
+        flags |= CLONE_NEWUSER;
+        if (pipe(userns_pipe) < 0) { perror("pipe"); return 1; }
+    }
     pid_t pid = clone(sandbox_main, child_stack + STACK_SIZE, flags, NULL);
     if (pid < 0) {
         perror("clone");
         return 1;
+    }
+    if (userns_mode) {
+        close(userns_pipe[0]);
+        if (write_uid_gid_map(pid) < 0) {
+            close(userns_pipe[1]);
+            waitpid(pid, NULL, 0);
+            return 1;
+        }
+        char c = 0;
+        (void)!write(userns_pipe[1], &c, 1);
+        close(userns_pipe[1]);
     }
     int status;
     waitpid(pid, &status, 0);
