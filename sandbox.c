@@ -52,6 +52,24 @@ const char *essential_bins[] = {
     "/usr/bin/du",
     NULL
 };
+int drop_bounding_caps(void) {
+    int cap = 0;
+    for (;; cap++) {
+        int r = prctl(PR_CAPBSET_READ, cap, 0, 0, 0);
+        if (r < 0) {
+            if (errno == EINVAL)
+                break;
+            perror("prctl(PR_CAPBSET_READ)");
+            return -1;
+        }
+        if (prctl(PR_CAPBSET_DROP, cap, 0, 0, 0) < 0) {
+            fprintf(stderr, "PR_CAPBSET_DROP(%d): %s\n", cap, strerror(errno));
+            return -1;
+        }
+    }
+    return 0;
+}
+
 int drop_all_caps(void) {
     cap_t caps = cap_init();
     if (!caps) {
@@ -377,7 +395,10 @@ int setup_sandbox_environment(void)
         return -1;
     }
 
-    if (setgid(gid) < 0) 
+    if (drop_bounding_caps() < 0)
+        return -1;
+
+    if (setgid(gid) < 0)
     {
         perror("setgid");
         return -1;
