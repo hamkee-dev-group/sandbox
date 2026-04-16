@@ -22,6 +22,18 @@
 
 
 
+#ifndef SECCOMP_RET_KILL_PROCESS
+#define SECCOMP_RET_KILL_PROCESS SECCOMP_RET_KILL
+#endif
+
+#ifndef __X32_SYSCALL_BIT
+#define __X32_SYSCALL_BIT 0x40000000
+#endif
+
+#define SECCOMP_ALLOW_SYSCALL(nr) \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, nr, 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+
 #define PATH_MAX 1024
 #define STACK_SIZE (1024 * 1024)
 static char child_stack[STACK_SIZE];
@@ -483,15 +495,70 @@ int install_seccomp_filter(void)
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, __X32_SYSCALL_BIT, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mount, 0, 1),
+        /* Post-setup runtime only: file, memory, signal, and child-process syscalls. */
+        SECCOMP_ALLOW_SYSCALL(__NR_execve),
+        SECCOMP_ALLOW_SYSCALL(__NR_exit),
+        SECCOMP_ALLOW_SYSCALL(__NR_exit_group),
+        SECCOMP_ALLOW_SYSCALL(__NR_read),
+        SECCOMP_ALLOW_SYSCALL(__NR_write),
+        SECCOMP_ALLOW_SYSCALL(__NR_close),
+        SECCOMP_ALLOW_SYSCALL(__NR_openat),
+        SECCOMP_ALLOW_SYSCALL(__NR_access),
+        SECCOMP_ALLOW_SYSCALL(__NR_fstat),
+        SECCOMP_ALLOW_SYSCALL(__NR_pread64),
+        SECCOMP_ALLOW_SYSCALL(__NR_lseek),
+        SECCOMP_ALLOW_SYSCALL(__NR_getdents64),
+        SECCOMP_ALLOW_SYSCALL(__NR_statfs),
+        SECCOMP_ALLOW_SYSCALL(__NR_fcntl),
+        SECCOMP_ALLOW_SYSCALL(__NR_ioctl),
+        SECCOMP_ALLOW_SYSCALL(__NR_futex),
+        SECCOMP_ALLOW_SYSCALL(__NR_brk),
+        SECCOMP_ALLOW_SYSCALL(__NR_mmap),
+        SECCOMP_ALLOW_SYSCALL(__NR_mprotect),
+        SECCOMP_ALLOW_SYSCALL(__NR_munmap),
+        SECCOMP_ALLOW_SYSCALL(__NR_arch_prctl),
+        SECCOMP_ALLOW_SYSCALL(__NR_prctl),
+        SECCOMP_ALLOW_SYSCALL(__NR_prlimit64),
+        SECCOMP_ALLOW_SYSCALL(__NR_rt_sigaction),
+        SECCOMP_ALLOW_SYSCALL(__NR_rt_sigprocmask),
+        SECCOMP_ALLOW_SYSCALL(__NR_rt_sigreturn),
+        SECCOMP_ALLOW_SYSCALL(__NR_set_tid_address),
+        SECCOMP_ALLOW_SYSCALL(__NR_set_robust_list),
+        SECCOMP_ALLOW_SYSCALL(__NR_getuid),
+        SECCOMP_ALLOW_SYSCALL(__NR_geteuid),
+        SECCOMP_ALLOW_SYSCALL(__NR_getgid),
+        SECCOMP_ALLOW_SYSCALL(__NR_getegid),
+        SECCOMP_ALLOW_SYSCALL(__NR_getpid),
+        SECCOMP_ALLOW_SYSCALL(__NR_getppid),
+        SECCOMP_ALLOW_SYSCALL(__NR_getcwd),
+        SECCOMP_ALLOW_SYSCALL(__NR_wait4),
+        SECCOMP_ALLOW_SYSCALL(__NR_clone),
+        SECCOMP_ALLOW_SYSCALL(__NR_dup2),
+#ifdef __NR_pipe2
+        SECCOMP_ALLOW_SYSCALL(__NR_pipe2),
+#endif
+#ifdef __NR_fork
+        SECCOMP_ALLOW_SYSCALL(__NR_fork),
+#endif
+#ifdef __NR_vfork
+        SECCOMP_ALLOW_SYSCALL(__NR_vfork),
+#endif
+#ifdef __NR_newfstatat
+        SECCOMP_ALLOW_SYSCALL(__NR_newfstatat),
+#endif
+#ifdef __NR_fadvise64
+        SECCOMP_ALLOW_SYSCALL(__NR_fadvise64),
+#endif
+#ifdef __NR_getrandom
+        SECCOMP_ALLOW_SYSCALL(__NR_getrandom),
+#endif
+#ifdef __NR_rseq
+        SECCOMP_ALLOW_SYSCALL(__NR_rseq),
+#endif
+#ifdef __NR_statx
+        SECCOMP_ALLOW_SYSCALL(__NR_statx),
+#endif
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_umount2, 0, 1),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_pivot_root, 0, 1),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ptrace, 0, 1),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
     };
     struct sock_fprog prog = {
         .len = (unsigned short)(sizeof(filter) / sizeof(filter[0])),
@@ -561,6 +628,7 @@ int sandbox_exec(char *const argv[])
 {
     if (setup_sandbox_environment() < 0)
         return 1;
+    /* --trace runs through this path and needs ptrace syscalls available. */
     execv(argv[0], argv);
     perror("execv sandbox_exec");
     return 1;

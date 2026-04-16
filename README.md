@@ -121,7 +121,7 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
 - **Capabilities**: the bounding set is cleared before the optional UID/GID drop, and all process capability sets are dropped afterward
 - **No environment variables** (except a safe `PATH`)
 - **User `nobody`**: further restricts privilege for untrusted code (unless tracing)
-- **Seccomp** hardens the normal sandbox execution path with a small denylist; `--trace` is intentionally left unfiltered so `strace` can still run
+- **Seccomp** hardens the normal sandbox execution path on x86_64 with a small fail-closed allowlist; `--trace` is intentionally left unfiltered so `strace` can still run
 - **Not a container runtime**, but a tight, auditable educational sandbox
 
 ### Security tips
@@ -151,7 +151,7 @@ sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
 ## Limitations & Roadmap
 
 - Requires root unless `--userns` is used for rootless operation via user namespaces
-- Seccomp hardening applies only to the normal sandbox execution path, not `--trace`
+- Seccomp hardening applies only to the normal sandbox execution path on x86_64, not `--trace`
 - No cgroup or resource limiting
 - `--userns` requires unprivileged user namespaces to be enabled on the host and cannot be combined with `--trace` or `--user`
 
