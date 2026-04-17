@@ -41,8 +41,8 @@
 ### Runtime
 
 - **Root privileges** — required for all modes except `--userns` (namespaces, chroot, mounts).
-- **`/usr/bin/ldd`** — used by every mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
-- **`/usr/bin/strace`** (trace mode only) — `--trace` hard-fails if strace is not present on the host.
+- **`/usr/bin/ldd`** — the only universal host-side runtime dependency. Used in both setup paths (target-binary mode and shell mode) to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
+- **`/usr/bin/strace`** — required **only** for `--trace`. Not needed for the shell sandbox or for non-trace target runs; `--trace` hard-fails if strace is missing on the host.
 
   ```bash
   # Debian / Ubuntu
