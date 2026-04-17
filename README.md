@@ -9,7 +9,7 @@
 
 - 📦 **Builds minimal chroot environments** for a binary or a shell session
 - 🔒 **Isolates with Linux namespaces**: mount, PID, UTS (hostname)
-- 🚫 **Clears the capability bounding set** before optional UID/GID drop, then **drops all process capabilities** using `libcap`
+- 🚫 **Clears the capability bounding set** before optional UID/GID drop, then **drops all process capabilities** using `libcap` after wiping the environment
 - 👤 **Optionally drops to the unprivileged `nobody` user** (`--user`)
 - 🔍 **Supports tracing with `strace`** (`--trace`)
 - 🏗️ **Auto-copies required dynamic libraries** with `ldd`
@@ -121,7 +121,7 @@ Modes:
 - Optionally traces binary with `strace` to discover runtime file dependencies
 - Optionally switches to UID/GID 65534 (`nobody`)
 - Optionally creates a user namespace with `--userns` for rootless operation: writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`, so the sandboxed process appears as `root` inside the namespace while retaining the caller's identity on the host. `--userns` cannot be combined with `--user` or `--trace`.
-- Clears the capability bounding set, drops to unprivileged UID/GID if requested, then drops all process capabilities and wipes environment variables
+- Clears the capability bounding set, drops to unprivileged UID/GID if requested, wipes environment variables with `clearenv()` and restores only `PATH=/bin:/usr/bin` and `HOME=/`, and finally drops all process capabilities
 - Execution splits into two distinct paths:
     - **Normal execution** (no `--trace`) runs through `sandbox_main()`, which calls `install_seccomp_filter()` to install a fail-closed x86_64-only seccomp allowlist before `execv()`. On non-x86_64 hosts `install_seccomp_filter()` returns an error and the sandbox fails closed without executing the target.
     - **Trace execution** (`--trace`) runs through `trace_main()` → `sandbox_exec()`, which intentionally does **not** call `install_seccomp_filter()`; the target is `execv()`'d under `strace` with no seccomp filter applied, because the allowlist would otherwise block `ptrace` and the syscalls `strace` needs.
@@ -132,8 +132,8 @@ Modes:
 ## Security Model
 
 - **Namespaces** isolate filesystem, process IDs, and hostname from the host
-- **Capabilities**: the bounding set is cleared before the optional UID/GID drop, and all process capability sets are dropped afterward
-- **No environment variables** (except `PATH=/bin:/usr/bin` and `HOME=/`)
+- **Capabilities**: the bounding set is cleared before the optional UID/GID drop; all process capability sets are dropped only after the environment reset
+- **No environment variables**: `clearenv()` runs after the UID/GID drop, then `PATH=/bin:/usr/bin` and `HOME=/` are restored, and only after that are all process capabilities dropped
 - **User `nobody`**: further restricts privilege for untrusted code (unless tracing)
 - **User namespace (`--userns`)**: optional rootless mode. Writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`. The process is `root` inside the namespace but keeps the caller's identity on the host — it is **not** a drop to `nobody`. Mutually exclusive with `--user` and `--trace`.
 - **Seccomp**: only the normal execution path (`sandbox_main()` → `install_seccomp_filter()` → `execv()`) installs a filter — a small fail-closed allowlist that is x86_64-only and fails closed on other architectures (the sandbox exits without executing the target). The `--trace` path (`trace_main()` → `sandbox_exec()` → `execv()` under `strace`) intentionally does **not** call `install_seccomp_filter()` and runs entirely unfiltered, because the allowlist would block the `ptrace` and related syscalls `strace` depends on
