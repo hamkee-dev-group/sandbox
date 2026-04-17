@@ -122,6 +122,9 @@ Modes:
 - Optionally switches to UID/GID 65534 (`nobody`)
 - Optionally creates a user namespace with `--userns` for rootless operation: writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`, so the sandboxed process appears as `root` inside the namespace while retaining the caller's identity on the host. `--userns` cannot be combined with `--user` or `--trace`.
 - Clears the capability bounding set, drops to unprivileged UID/GID if requested, then drops all process capabilities and wipes environment variables
+- Execution splits into two distinct paths:
+    - **Normal execution** (no `--trace`) runs through `sandbox_main()`, which calls `install_seccomp_filter()` to install a fail-closed x86_64-only seccomp allowlist before `execv()`. On non-x86_64 hosts `install_seccomp_filter()` returns an error and the sandbox fails closed without executing the target.
+    - **Trace execution** (`--trace`) runs through `trace_main()` → `sandbox_exec()`, which intentionally does **not** call `install_seccomp_filter()`; the target is `execv()`'d under `strace` with no seccomp filter applied, because the allowlist would otherwise block `ptrace` and the syscalls `strace` needs.
 - Executes `/bin/sh` (or the target) inside the chroot
 
 ---
@@ -133,7 +136,7 @@ Modes:
 - **No environment variables** (except `PATH=/bin:/usr/bin` and `HOME=/`)
 - **User `nobody`**: further restricts privilege for untrusted code (unless tracing)
 - **User namespace (`--userns`)**: optional rootless mode. Writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`. The process is `root` inside the namespace but keeps the caller's identity on the host — it is **not** a drop to `nobody`. Mutually exclusive with `--user` and `--trace`.
-- **Seccomp** hardens the normal sandbox execution path on x86_64 with a small fail-closed allowlist; `--trace` is intentionally left unfiltered so `strace` can still run
+- **Seccomp**: only the normal execution path (`sandbox_main()` → `install_seccomp_filter()` → `execv()`) installs a filter — a small fail-closed allowlist that is x86_64-only and fails closed on other architectures (the sandbox exits without executing the target). The `--trace` path (`trace_main()` → `sandbox_exec()` → `execv()` under `strace`) intentionally does **not** call `install_seccomp_filter()` and runs entirely unfiltered, because the allowlist would block the `ptrace` and related syscalls `strace` depends on
 - **Not a container runtime**, but a tight, auditable educational sandbox
 
 ### Security tips
@@ -163,7 +166,7 @@ sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
 ## Limitations & Roadmap
 
 - Requires root unless `--userns` is used for rootless operation via user namespaces
-- Seccomp hardening applies only to the normal sandbox execution path on x86_64, not `--trace`
+- Seccomp hardening is installed only on the normal execution path (`sandbox_main()` calls `install_seccomp_filter()` before `execv()`) and only on x86_64 — on other architectures `install_seccomp_filter()` returns an error and the normal path fails closed. The `--trace` path (`trace_main()` → `sandbox_exec()`) deliberately skips `install_seccomp_filter()` entirely, so `--trace` runs without any seccomp filter on every architecture
 - No cgroup or resource limiting
 - `--userns` requires unprivileged user namespaces to be enabled on the host and cannot be combined with `--trace` or `--user`. It writes `setgroups=deny` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`), so the sandboxed process is `root` inside the namespace but keeps the caller's identity on the host
 
