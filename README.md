@@ -67,6 +67,15 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
 
 ### Modes
 
+Flag constraints (enforced at startup):
+
+- `--trace` requires a target binary.
+- `--user` cannot be combined with `--trace`.
+- `--userns` cannot be combined with `--trace`.
+- `--userns` cannot be combined with `--user`.
+
+Modes:
+
 - **Minimal shell sandbox:**
     ```bash
     sudo ./sandbox /tmp/mychroot
@@ -80,12 +89,12 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
     ```
-    - `--trace` requires a target binary and cannot be combined with `--user`.
+    - `--trace` requires a target binary and cannot be combined with `--user` or `--userns`.
 - **Sandbox as unprivileged user (`nobody`):**
     ```bash
     sudo ./sandbox /tmp/mychroot --user
     ```
-    - *Not compatible with `--trace`.*
+    - Cannot be combined with `--trace` or `--userns`.
 - **Rootless mode (user namespace):**
     ```bash
     ./sandbox /tmp/mychroot --userns
@@ -93,7 +102,7 @@ sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
     ```
     - Runs without root by creating a user namespace. Requires `sysctl kernel.unprivileged_userns_clone=1` (or equivalent) on the host kernel.
     - Device nodes (`/dev/null`, `/dev/zero`, `/dev/tty`) are bind-mounted from the host instead of created with `mknod`.
-    - *Not compatible with `--trace` or `--user`.*
+    - Cannot be combined with `--trace` or `--user`.
 - **Add extra files:**
     ```bash
     sudo ./sandbox /tmp/mychroot --extras extras.txt
