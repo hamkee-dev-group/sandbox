@@ -58,10 +58,9 @@
 ---
 
 ## Usage
-usage:
 
 ```bash
-./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]
+Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]
 ```
 
 Run as root (e.g., via `sudo`) unless `--userns` is used.
