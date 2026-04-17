@@ -120,6 +120,7 @@ Modes:
 - Optionally adds files specified in `--extras`
 - Optionally traces binary with `strace` to discover runtime file dependencies
 - Optionally switches to UID/GID 65534 (`nobody`)
+- Optionally creates a user namespace with `--userns` for rootless operation: writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`, so the sandboxed process appears as `root` inside the namespace while retaining the caller's identity on the host. `--userns` cannot be combined with `--user` or `--trace`.
 - Clears the capability bounding set, drops to unprivileged UID/GID if requested, then drops all process capabilities and wipes environment variables
 - Executes `/bin/sh` (or the target) inside the chroot
 
@@ -131,6 +132,7 @@ Modes:
 - **Capabilities**: the bounding set is cleared before the optional UID/GID drop, and all process capability sets are dropped afterward
 - **No environment variables** (except `PATH=/bin:/usr/bin` and `HOME=/`)
 - **User `nobody`**: further restricts privilege for untrusted code (unless tracing)
+- **User namespace (`--userns`)**: optional rootless mode. Writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`. The process is `root` inside the namespace but keeps the caller's identity on the host — it is **not** a drop to `nobody`. Mutually exclusive with `--user` and `--trace`.
 - **Seccomp** hardens the normal sandbox execution path on x86_64 with a small fail-closed allowlist; `--trace` is intentionally left unfiltered so `strace` can still run
 - **Not a container runtime**, but a tight, auditable educational sandbox
 
@@ -163,7 +165,7 @@ sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
 - Requires root unless `--userns` is used for rootless operation via user namespaces
 - Seccomp hardening applies only to the normal sandbox execution path on x86_64, not `--trace`
 - No cgroup or resource limiting
-- `--userns` requires unprivileged user namespaces to be enabled on the host and cannot be combined with `--trace` or `--user`
+- `--userns` requires unprivileged user namespaces to be enabled on the host and cannot be combined with `--trace` or `--user`. It writes `setgroups=deny` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`), so the sandboxed process is `root` inside the namespace but keeps the caller's identity on the host
 
 ---
 
