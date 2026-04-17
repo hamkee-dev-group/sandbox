@@ -1,7 +1,7 @@
 
 # 🏝️ sandbox — Minimal Linux Sandbox in C
 
-**sandbox** is a minimalist, auditable, and hackable C program that builds a chrooted Linux environment around a target binary or a minimal shell environment, isolating execution in dedicated namespaces with tight controls on filesystem, user privileges, and process capabilities.
+**sandbox** is a minimalist, auditable, and hackable C program that builds a chrooted Linux environment around a target ELF binary or a minimal shell environment, isolating execution in dedicated namespaces with tight controls on filesystem, user privileges, and process capabilities. The target must be an executable regular ELF binary; shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
 
 ---
 
@@ -85,6 +85,7 @@ Modes:
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/ls
     ```
+    - `<target-binary>` must be an executable regular ELF binary (checked via `access(X_OK)`, `S_ISREG`, and the `\x7fELF` magic bytes). Shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
 - **Trace a binary (copies all files accessed during run):**
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
@@ -149,7 +150,7 @@ sudo ./sandbox /tmp/sandbox-root
 # You are now in a sandboxed /bin/sh
 ```
 
-Run a binary with minimal rootfs:
+Run an ELF binary with minimal rootfs (non-ELF targets such as shell scripts are rejected):
 
 ```bash
 sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
