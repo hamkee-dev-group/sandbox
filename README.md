@@ -61,9 +61,10 @@
 usage:
 
 ```bash
-sudo ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>]
-sudo ./sandbox <rootfs> <target-binary> [--extras <file>] --trace <args...>
+./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]
 ```
+
+Run as root (e.g., via `sudo`) unless `--userns` is used.
 
 ### Modes
 
