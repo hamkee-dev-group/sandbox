@@ -44,14 +44,14 @@
 
 ### Runtime
 
+These are the host-side tools `sandbox` itself invokes at runtime. For the separate list of binaries that shell mode **copies** from the host into the rootfs (a different kind of dependency), see **Shell-mode rootfs inventory** below.
+
 - **Root privileges** — required for all modes except `--userns` (namespaces, chroot, mounts).
-- **`ldd` on the host `PATH`** — required in every mode. Resolved via `execlp("ldd", ...)` (`sandbox.c:263`), so any location on `PATH` works for that subprocess call. Used by `copy_ldd_deps()` in both target mode and shell mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL). Note that shell mode has an **additional, path-specific** requirement on `/usr/bin/ldd` because `essential_bins[]` copies from that exact path — see the next bullet.
-- **Shell-mode `essential_bins[]` (every source path required on the host)** — shell mode requires every hardcoded source path in `essential_bins[]` (`sandbox.c:52-68`) to exist on the host: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`. The essential-bins loop in `setup_essential_environment()` (`sandbox.c:727-735`) is strict, not best-effort: any `copy_file()` failure for an entry (including a missing source on the host) is logged as `Failed to copy essential bin: <path>` and aborts `setup_essential_environment()` with `return -1`, and a subsequent `copy_ldd_deps()` failure for the same binary likewise aborts setup with `return -1`. This applies to `/usr/bin/strace` exactly as it applies to every other entry in `essential_bins[]` — there is no skip or best-effort fallback for strace. Both `/usr/bin/ldd` and `/usr/bin/strace` are therefore host-side requirements for shell mode on every run, regardless of `--trace` (`--trace` is a target-mode-only flag and has no bearing on shell mode).
+- **`ldd` on the host `PATH`** — required in every mode. `copy_ldd_deps()` invokes it via `execlp("ldd", "ldd", bin, ...)` (`sandbox.c:258-264`), so any location on `PATH` works. Used in both target mode and shell mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
 - **`/etc` and `/dev` contents depend on flags, not just mode** — both `setup_essential_environment()` and `build_rootfs()` create the standard directory tree from `dirs[]`, so `/etc` and `/dev` exist in both shell mode and target mode. `create_etc_files()` only writes `/etc/passwd` and `/etc/group` when `drop_to_nobody` is enabled via `--user`; otherwise it only ensures `/etc` exists. `create_dev_nodes()` creates real `/dev/null`, `/dev/zero`, and `/dev/tty` device nodes in normal runs, but in `--userns` mode it creates placeholder files that `setup_sandbox_environment()` later bind-mounts over with the host devices. `--extras` can also copy additional absolute paths such as `/etc/...` in any mode.
-- **`/usr/bin/strace` in target mode** — target mode attempts to copy `/usr/bin/strace` into the rootfs on every run (`sandbox.c:699-709`), but a missing host `/usr/bin/strace` is only fatal under `--trace`:
+- **`/usr/bin/strace` — only invoked under `--trace`** — the trace path builds `trace_argv[0] = "/usr/bin/strace"` and runs `sandbox_exec(trace_argv)`, which `execv()`s that exact path inside the rootfs (`sandbox.c:857-886`, `sandbox.c:640-645`). Target mode attempts to copy `/usr/bin/strace` into the rootfs on every run (`sandbox.c:699-709`), but a missing host `/usr/bin/strace` is only fatal under `--trace`:
     - **Without `--trace`:** tolerated. If `copy_file("/usr/bin/strace", ...)` fails, `build_rootfs()` silently continues and target mode runs to completion without `strace` in the rootfs (the `else` branch that runs `copy_ldd_deps("/usr/bin/strace", ...)` is only entered when the copy succeeded).
     - **With `--trace`:** strictly required. The `if (trace_mode)` branch at `sandbox.c:702-705` returns `-1` and aborts setup with `Failed to copy strace (required for --trace)`.
-- **Observable consequence:** on a host with strace installed, a normal (non-`--trace`) target run produces a rootfs containing `<rootfs>/usr/bin/strace` even though the file is not required for the target run to succeed. Shell mode, by contrast, requires `/usr/bin/strace` on the host on every run, because it is copied via the strict `essential_bins[]` loop above.
 
   ```bash
   # Debian / Ubuntu
@@ -63,6 +63,25 @@
   # Arch
   sudo pacman -S strace
   ```
+
+### Shell-mode rootfs inventory
+
+Shell mode assembles its rootfs by copying a hardcoded list of host binaries into the chroot so that the interactive shell has a usable toolset. These paths are **copied** from the host (not invoked by `sandbox` itself) and are therefore separate from the **Runtime** tool list above. The list is `essential_bins[]` (`sandbox.c:52-68`), and `setup_essential_environment()` (`sandbox.c:727-735`) copies each entry from the exact host path shown below; any missing source aborts setup with `Failed to copy essential bin: <path>`, and a subsequent `copy_ldd_deps()` failure for the same entry likewise aborts setup:
+
+- `/bin/sh`
+- `/bin/ls`
+- `/bin/cat`
+- `/bin/echo`
+- `/bin/mkdir`
+- `/bin/rm`
+- `/usr/bin/grep`
+- `/usr/bin/head`
+- `/usr/bin/tail`
+- `/usr/bin/wc`
+- `/usr/bin/stat`
+- `/usr/bin/ldd`
+- `/usr/bin/strace`
+- `/usr/bin/du`
 
 ### Development (optional)
 
