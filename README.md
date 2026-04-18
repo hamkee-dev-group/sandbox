@@ -55,6 +55,24 @@
   sudo pacman -S strace
   ```
 
+### Development (optional)
+
+Needed only for `make lint`:
+
+- **`cppcheck`** — static analysis for `sandbox.c`
+- **`shellcheck`** — static analysis for `tests/smoke.sh`
+
+  ```bash
+  # Debian / Ubuntu
+  sudo apt install cppcheck shellcheck
+
+  # Fedora / RHEL
+  sudo dnf install cppcheck ShellCheck
+
+  # Arch
+  sudo pacman -S cppcheck shellcheck
+  ```
+
 ---
 
 ## Build
@@ -96,6 +114,29 @@ The `test` target runs `tests/smoke.sh`, which performs two checks:
 - Verifies that `./sandbox` exists and is executable (`-x`).
 
 This is a smoke test only — there are no unit tests, no CI, and no coverage of runtime sandboxing behavior. It just confirms the binary was built and prints the expected usage line.
+
+---
+
+## Linting
+
+Run the static-analysis linters:
+
+```bash
+make lint
+```
+
+The `lint` target runs two checks:
+
+- **cppcheck** against `sandbox.c`:
+  ```
+  cppcheck --quiet --enable=warning,performance,portability --check-level=reduced --suppress=normalCheckLevelMaxBranches --inline-suppr --error-exitcode=1 sandbox.c
+  ```
+- **shellcheck** against `tests/smoke.sh`:
+  ```
+  shellcheck tests/smoke.sh
+  ```
+
+Both `cppcheck` and `shellcheck` must be installed on the host (see [Development (optional)](#development-optional) under Prerequisites).
 
 ---
 
