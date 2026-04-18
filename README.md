@@ -27,16 +27,20 @@
 - A **C compiler** in `CC` — the Makefile defaults to `clang` (`CC ?= clang`), so plain `make` requires `clang`. To build with GCC, run `make CC=gcc`.
 - **libcap** development headers and library — provides `<sys/capability.h>` and `-lcap`
 
+  These are the only build prerequisites `make preflight` checks (`Makefile:19-22`): a working `CC`, `<sys/capability.h>`, and successful link with `-lcap`.
+
   ```bash
   # Debian / Ubuntu
-  sudo apt install build-essential clang libcap-dev
+  sudo apt install clang libcap-dev
 
   # Fedora / RHEL
   sudo dnf install clang libcap-devel
 
   # Arch
-  sudo pacman -S base-devel clang libcap
+  sudo pacman -S clang libcap
   ```
+
+  Distro meta-packages like `build-essential` (Debian/Ubuntu) or `base-devel` (Arch) are **not** required — install them only as an optional convenience bundle if you want the wider toolchain.
 
 ### Runtime
 
