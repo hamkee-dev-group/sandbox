@@ -176,8 +176,11 @@ Modes:
     ```bash
     sudo ./sandbox /tmp/mychroot
     ```
-    - Drops you into `/bin/sh` with the exact set of binaries hardcoded in `essential_bins[]` (`sandbox.c:52-68`): `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`.
-    - These binaries are copied on a **best-effort** basis: any `copy_file()` failure for an entry in `essential_bins[]` (including, but not limited to, the source being absent on the host — `copy_file()` also fails on destination open/write errors and other I/O failures) is logged as `Failed to copy essential bin: <path>` and skipped (`sandbox.c:727-731`), so the resulting shell toolbox is whatever subset of that list was successfully copied — nothing is added beyond it. A `copy_ldd_deps()` failure for a binary that was copied still aborts setup.
+    - Drops you into `/bin/sh`. `setup_essential_environment()` copies **exactly** the set of binaries hardcoded in `essential_bins[]` (`sandbox.c:52-68`) into the rootfs — nothing more, nothing less: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`.
+    - The copy loop (`sandbox.c:727-735`) is strict, not best-effort: any `copy_file()` failure for an entry (source absent on the host, destination open/write error, or any other I/O failure) is logged as `Failed to copy essential bin: <path>` and aborts setup with `return -1`, and a subsequent `copy_ldd_deps()` failure for the same binary likewise aborts setup. A successful shell-mode run therefore guarantees the rootfs contains every entry in `essential_bins[]`; verify on a host where those binaries exist with:
+      ```bash
+      sudo find <rootfs>/bin <rootfs>/usr/bin -maxdepth 1 -type f | sort
+      ```
 - **Run a specific binary:**
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/ls

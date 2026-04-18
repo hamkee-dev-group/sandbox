@@ -728,7 +728,7 @@ int setup_essential_environment(const char *root) {
         snprintf(dst, sizeof(dst), "%s%s", root, essential_bins[i]);
         if (copy_file(essential_bins[i], dst) < 0) {
             fprintf(stderr, "Failed to copy essential bin: %s\n", essential_bins[i]);
-            continue;
+            return -1;
         }
         if (copy_ldd_deps(essential_bins[i], root) < 0)
             return -1;
