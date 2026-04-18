@@ -148,6 +148,8 @@ Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>
 
 Run as root (e.g., via `sudo`) unless `--userns` is used.
 
+`--trace` terminates sandbox option parsing: it must appear **after** all other sandbox flags (`--user`, `--userns`, `--extras <file>`), and every token after `--trace` is appended to the target binary's argv — not interpreted as a flag for `sandbox` or `strace`. For example, `./sandbox /tmp/sbroot /bin/echo --trace --userns` does **not** enable `--userns`; the string `--userns` is passed through as an argument to `/bin/echo`.
+
 ### Modes
 
 Flag constraints (enforced at startup):
@@ -174,6 +176,7 @@ Modes:
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
     ```
     - `--trace` requires a target binary and cannot be combined with `--user` or `--userns`.
+    - `--trace` must appear **after** all other sandbox flags. It ends sandbox flag parsing, and every token after `--trace` is passed as an argument to the target binary — not to `sandbox` and not to `strace`. So `./sandbox /tmp/sbroot /bin/echo --trace --userns` runs `/bin/echo --userns` inside the sandbox; it does **not** enable user-namespace mode.
 - **Sandbox as unprivileged user (`nobody`):**
     ```bash
     sudo ./sandbox /tmp/mychroot --user
