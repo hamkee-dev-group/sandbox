@@ -188,6 +188,8 @@ Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>
 
 Run as root (e.g., via `sudo`) unless `--userns` is used.
 
+`<target-binary>` is treated as the literal path you provide, not something resolved via the host or sandbox `PATH`; pass the intended path such as `/usr/bin/ls`, not bare `ls`.
+
 After `<rootfs>`, `sandbox` scans `argv` left-to-right until `--trace` (`sandbox.c:759-779`). At each position, `--user`, `--userns`, and `--extras <file>` are recognized as options and may appear either before or after the target binary; `--extras` also consumes the following token as its list-file path, so that token is **not** passed through to the target. Any remaining token is positional: the first positional token becomes `<target-binary>`, and every later positional token is collected into `target_args[]`. Whether those later positionals actually reach the target depends on the execution path:
 
 - **Normal (non-`--trace`) path:** `sandbox_main()` reads `target_args[]` and forwards each entry as an argument to the executed target (`sandbox.c:621-629`). For example, `./sandbox /tmp/x2 --userns /bin/echo hi` runs `/bin/echo hi`, and `./sandbox /tmp/sb-review /bin/echo one --userns two` runs `/bin/echo one two`.
@@ -219,6 +221,7 @@ Modes:
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/ls
     ```
+    - `<target-binary>` is the literal path/string you pass here and is not `PATH`-resolved, so use the intended path such as `/usr/bin/ls` rather than bare `ls`.
     - `<target-binary>` is validated by `is_binary()` (`sandbox.c:138-165`), which only checks that the path is executable (`access(X_OK)`), is a regular file (`S_ISREG`), and that its first four bytes are the ELF magic `\x7fELF`. This is a magic-bytes check, not full ELF validation: shell scripts and other non-ELF executables are rejected here with `"<path> is not a binary file"` (for example, `./sandbox /tmp/sb-review /tmp/sb-script --userns` on an executable shell script fails immediately with `/tmp/sb-script is not a binary file`), but a malformed file whose first four bytes happen to be `\x7fELF` — including an executable regular file containing only those four bytes — passes `is_binary()` and then fails later during `build_rootfs()`, typically at `ldd failed for <target>` followed by `Rootfs setup failed`.
     - Target-mode rootfs assembly is handled by `build_rootfs()` (`sandbox.c:650-713`), not by the shell-mode `essential_bins[]` path. It **always** creates the standard directory tree from `dirs[]` (`/bin`, `/usr/bin`, `/etc`, `/proc`, `/dev`, `/tmp`), **always** copies the requested target to `<rootfs>/usr/bin/<basename>` (`sandbox.c:666-670`), and **always** copies `/bin/sh` to `<rootfs>/bin/sh` (`sandbox.c:689-694`).
     - `build_rootfs()` also **always** copies shared-library dependencies for the requested target and for `/bin/sh` by calling `copy_ldd_deps(bin, rootfs)` and `copy_ldd_deps("/bin/sh", rootfs)` (`sandbox.c:695-698`).
