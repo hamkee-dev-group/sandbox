@@ -210,7 +210,7 @@ Flag constraints (enforced at startup):
 - `--userns` cannot be combined with `--trace`.
 - `--userns` cannot be combined with `--user`.
 
-`main()` runs the root check (`sandbox.c:781-783`) **before** the incompatibility checks (`sandbox.c:785-795`), so whether an invalid invocation surfaces its conflict error or the generic root error depends on which flag combination is used. Concrete examples (each command shows the exact error produced):
+`main()` checks startup constraints in this order: root first (`sandbox.c:781-783`), then flag incompatibilities (`sandbox.c:785-795`), then `--trace` without a target binary (`sandbox.c:797-799`). That ordering affects which stderr line you see first. For example, `./sandbox /tmp/sb --trace` fails with `This program must be run as root (or use --userns).` before it can reach `--trace requires a target binary.`, while `sudo ./sandbox /tmp/sb --trace` reaches the later check and prints `--trace requires a target binary.`. Concrete examples (each command shows the exact error produced):
 
 ```bash
 # --userns bypasses the root check, so --userns combinations reach the
