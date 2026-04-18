@@ -208,7 +208,9 @@ Modes:
     ./sandbox /tmp/mychroot /usr/bin/ls --userns
     ```
     - Runs without root by creating a user namespace. Requires `sysctl kernel.unprivileged_userns_clone=1` (or equivalent) on the host kernel.
-    - Device nodes (`/dev/null`, `/dev/zero`, `/dev/tty`) are bind-mounted from the host instead of created with `mknod`.
+    - Device nodes (`/dev/null`, `/dev/zero`, `/dev/tty`) are set up in **two phases**, because `mknod(2)` requires `CAP_MKNOD` which is not available inside an unprivileged user namespace:
+        1. **Placeholder creation** — during rootfs assembly, `create_dev_nodes()` takes the `userns_mode` branch at `sandbox.c:363-369` and creates empty regular files at `<rootfs>/dev/null`, `<rootfs>/dev/zero`, and `<rootfs>/dev/tty` via `open(path, O_WRONLY | O_CREAT, 0666)` instead of calling `mknod()`. These are not device nodes yet — they are zero-byte regular files that exist only to serve as bind-mount targets.
+        2. **Bind-mount over the placeholders** — later, inside the child, `setup_sandbox_environment()` (`sandbox.c:441-452`) iterates `{"null", "zero", "tty"}` and performs `mount("/dev/<name>", "<rootfs>/dev/<name>", NULL, MS_BIND, NULL)` for each, attaching the host's real character devices onto the placeholder files before `chroot`.
     - Cannot be combined with `--trace` or `--user`.
 - **Add extra files:**
     ```bash
