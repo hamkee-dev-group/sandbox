@@ -200,7 +200,8 @@ Modes:
     - `<target-binary>` must be an executable regular ELF binary (checked via `access(X_OK)`, `S_ISREG`, and the `\x7fELF` magic bytes). Shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
     - Target-mode rootfs assembly is handled by `build_rootfs()` (`sandbox.c:650-713`), not by the shell-mode `essential_bins[]` path. It **always** creates the standard directory tree from `dirs[]` (`/bin`, `/usr/bin`, `/etc`, `/proc`, `/dev`, `/tmp`), **always** copies the requested target to `<rootfs>/usr/bin/<basename>` (`sandbox.c:666-670`), and **always** copies `/bin/sh` to `<rootfs>/bin/sh` (`sandbox.c:689-694`).
     - `build_rootfs()` also **always** copies shared-library dependencies for the requested target and for `/bin/sh` by calling `copy_ldd_deps(bin, rootfs)` and `copy_ldd_deps("/bin/sh", rootfs)` (`sandbox.c:695-698`).
-    - If `<target-binary>` is an absolute path and that path differs from `/usr/bin/<basename>` (for example `/usr/local/bin/foo` or `/sbin/foo`), `build_rootfs()` additionally copies the same host binary to `<rootfs><absolute-target-path>` after creating any missing parent directories (`sandbox.c:672-688`). That extra copy is conditional on the input path; it is not created when the original path is already `/usr/bin/<basename>`.
+    - Normal target execution later runs through `sandbox_main()` (`sandbox.c:621-630`), which always `execv()`s `/usr/bin/<basename>` inside the sandbox. That means the executed path, and therefore the target process's `argv[0]`, is always `/usr/bin/<basename>` in the non-`--trace` path.
+    - If `<target-binary>` is an absolute path and that path differs from `/usr/bin/<basename>` (for example `/usr/local/bin/foo` or `/sbin/foo`), `build_rootfs()` additionally copies the same host binary to `<rootfs><absolute-target-path>` after creating any missing parent directories (`sandbox.c:672-688`). That extra copy is conditional on the input path and exists for path compatibility only; the normal non-`--trace` `execv()` call still uses `/usr/bin/<basename>`, not `<absolute-target-path>`.
     - `build_rootfs()` also attempts to copy `/usr/bin/strace` to `<rootfs>/usr/bin/strace` on every target-mode run (`sandbox.c:699-709`). If that copy succeeds, it also copies `strace`'s shared-library dependencies; if the copy fails, setup aborts only when `--trace` is active, otherwise target mode continues without `strace` in the rootfs.
     - After those copies, `build_rootfs()` creates the runtime files and device nodes added by `create_dev_nodes(rootfs)` and `create_etc_files(rootfs)` (`sandbox.c:710`): `/dev/null`, `/dev/zero`, `/dev/tty`, `/etc/passwd`, and `/etc/group`.
 - **Trace a binary (copies all files accessed during run):**
@@ -209,6 +210,8 @@ Modes:
     ```
     - `--trace` requires a target binary and cannot be combined with `--user` or `--userns`.
     - `--trace` consumes all subsequent argv tokens as arguments to the traced binary, so `--user`, `--userns`, and `--extras <file>` must appear **before** `--trace`; otherwise they are silently passed to the target binary (not to `sandbox` and not to `strace`) and the `--user`/`--userns` conflict checks above are bypassed. For example, `./sandbox /tmp/sbroot /bin/echo --trace --userns` runs `/bin/echo --userns` inside the sandbox and does **not** enable user-namespace mode.
+    - In `--trace` mode, `main()` builds `trace_argv[]` before `clone()` (`sandbox.c:857-886`), and `trace_main()` only calls `sandbox_exec(trace_argv)` (`sandbox.c:595-598`); `trace_main()` does not populate `trace_argv[]` itself.
+    - `sandbox_exec()` then `execv()`s `/usr/bin/strace` because `trace_argv[0]` is `/usr/bin/strace` (`sandbox.c:640-645`, `sandbox.c:871-876`). The traced program path is passed separately as strace's first non-option command argument: if the user supplied an absolute target path, that argument is the original absolute path; otherwise it is `/usr/bin/<basename>` (`sandbox.c:867-885`). That traced-program path is what the traced binary sees as its own `argv[0]`; it is not the path `sandbox_exec()` directly `execv()`s.
 - **Sandbox as unprivileged user (`nobody`):**
     ```bash
     sudo ./sandbox /tmp/mychroot --user
@@ -284,10 +287,19 @@ sudo ./sandbox /tmp/sandbox-root
 # You are now in a sandboxed /bin/sh
 ```
 
-Run an ELF binary with minimal rootfs (non-ELF targets such as shell scripts are rejected):
+Run an ELF binary with minimal rootfs. In normal target mode, `sandbox_main()` always executes `/usr/bin/<basename>` inside the sandbox, even if the host path you supplied was different:
 
 ```bash
-sudo ./sandbox /tmp/sandbox-root /usr/bin/wc
+sudo ./sandbox /tmp/sandbox-root /bin/echo hello
+# inside the sandbox, the executed path and argv[0] are /usr/bin/echo
+```
+
+Trace mode is different: `sandbox_exec()` still executes `/usr/bin/strace`, but the traced program path passed to `strace` stays `/bin/echo` when the original target was absolute:
+
+```bash
+sudo ./sandbox /tmp/sandbox-root /bin/echo --trace hello
+# sandbox_exec() execv()s /usr/bin/strace
+# strace then runs /bin/echo, so the traced program sees argv[0] == /bin/echo
 ```
 
 ---
