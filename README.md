@@ -71,6 +71,12 @@ This produces `./sandbox`. To build with GCC instead of the default `clang`:
 make CC=gcc
 ```
 
+To remove the built binary:
+
+```bash
+make clean
+```
+
 ---
 
 ## Testing
