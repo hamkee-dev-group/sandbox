@@ -245,7 +245,7 @@ Modes:
 ## How It Works
 
 - Creates a new mount, PID, and UTS namespace
-- Builds up a new root filesystem (`<rootfs>`) by creating the standard directory tree from `dirs[]`: `/bin`, `/usr/bin`, `/etc`, `/proc`, `/dev`, and `/tmp`
+- Builds up a new root filesystem (`<rootfs>`) by creating the standard directory tree from `dirs[]`: `/bin`, `/usr/bin`, `/etc`, `/proc`, `/dev`, and `/tmp`. `/etc` itself is always created, but `/etc/passwd` and `/etc/group` are only written when `--user` is passed (the `if(drop_to_nobody)` gate at `sandbox.c:390`)
 - In shell mode, `setup_essential_environment()` copies every entry in `essential_bins[]`, then calls `create_dev_nodes()` and `create_etc_files()`
 - In target-binary mode, `build_rootfs()` always copies the target to `/usr/bin/<basename>`, conditionally also copies it to its original absolute path inside the rootfs when that path differs, always copies `/bin/sh`, always copies shared-library dependencies for the target and `/bin/sh`, conditionally includes `/usr/bin/strace` plus its shared-library dependencies when that copy succeeds (or fails closed under `--trace`), and then calls `create_dev_nodes()` and `create_etc_files()`
 - `create_dev_nodes()` prepares `/dev/null`, `/dev/zero`, and `/dev/tty`: in normal runs they are created as character device nodes, while in `--userns` they start as placeholder files that are later bind-mounted to the host devices
