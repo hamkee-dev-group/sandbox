@@ -148,6 +148,8 @@ Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>
 
 Run as root (e.g., via `sudo`) unless `--userns` is used.
 
+After `<rootfs>`, `sandbox` scans `argv` left-to-right until `--trace` (`sandbox.c:759-779`). At each position, `--user`, `--userns`, and `--extras <file>` are recognized as options and may appear either before or after the target binary; `--extras` also consumes the following token as its list-file path, so that token is **not** passed through to the target. Any remaining token is positional: the first positional token becomes `<target-binary>`, and every later positional token is appended to `target_args[]` and passed as an argument to the target when it is executed (`sandbox.c:621-629`). For example, `./sandbox /tmp/x2 --userns /bin/echo hi` runs `/bin/echo hi`, and `./sandbox /tmp/x3 /bin/echo one --userns two` runs `/bin/echo one two`.
+
 `--trace` terminates sandbox option parsing: it must appear **after** all other sandbox flags (`--user`, `--userns`, `--extras <file>`), and every token after `--trace` is appended to the target binary's argv — not interpreted as a flag for `sandbox` or `strace`. For example, `./sandbox /tmp/sbroot /bin/echo --trace --userns` does **not** enable `--userns`; the string `--userns` is passed through as an argument to `/bin/echo`.
 
 ### Modes
