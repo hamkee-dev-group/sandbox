@@ -267,7 +267,7 @@ Modes:
 - Execution splits into two distinct paths, but **both paths call `setup_sandbox_environment()` (`sandbox.c:414-499`) before `execv()`**, so `PR_SET_NO_NEW_PRIVS`, hostname/mount-private setup, `chroot` into `<rootfs>`, `/proc` mount, capability bounding set clear, optional UID/GID drop to `nobody`, `clearenv()` followed by restoring only `PATH=/bin:/usr/bin` and `HOME=/`, and the final `drop_all_caps()` all happen in both modes — the only difference between the two paths is whether seccomp is installed:
     - **Normal execution** (no `--trace`) runs through `sandbox_main()` (`sandbox.c:602-638`), which calls `setup_sandbox_environment()` first and then `install_seccomp_filter()` to install a fail-closed x86_64-only seccomp allowlist before `execv()`. On non-x86_64 hosts `install_seccomp_filter()` returns an error and the sandbox fails closed without executing the target.
     - **Trace execution** (`--trace`) runs through `trace_main()` → `sandbox_exec()` (`sandbox.c:640-648`), which **still** calls `setup_sandbox_environment()` — so the chroot, capability drops, and environment reset above are applied — and then intentionally does **not** call `install_seccomp_filter()`; the target is `execv()`'d under `strace` with no seccomp filter applied, because the allowlist would otherwise block `ptrace` and the syscalls `strace` needs.
-- Executes `/bin/sh` (or the target) inside the chroot
+- Executes /bin/sh in shell mode, executes /usr/bin/<basename> in the normal target path, and under --trace executes /usr/bin/strace via sandbox_exec() to trace either the original absolute target path or /usr/bin/<basename> for non-absolute targets.
 
 ---
 
