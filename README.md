@@ -1,7 +1,7 @@
 
 # 🏝️ sandbox — Minimal Linux Sandbox in C
 
-**sandbox** is a minimalist, auditable, and hackable C program that builds a chrooted Linux environment around a target ELF binary or a minimal shell environment, isolating execution in dedicated namespaces with tight controls on filesystem, user privileges, and process capabilities. The target must be an executable regular ELF binary; shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
+**sandbox** is a minimalist, auditable, and hackable C program that builds a chrooted Linux environment around a target ELF binary or a minimal shell environment, isolating execution in dedicated namespaces with tight controls on filesystem, user privileges, and process capabilities. The target is validated by `is_binary()` (`sandbox.c:138-165`), which only checks that the path is executable (`access(X_OK)`), is a regular file (`S_ISREG`), and that its first four bytes are the ELF magic `\x7fELF` — it is **not** a full ELF-format check. Shell scripts and other non-ELF executables are rejected at this initial check with `"<path> is not a binary file"`, but a malformed file whose first four bytes happen to be `\x7fELF` passes `is_binary()` and fails later during rootfs setup (typically at `ldd failed for <target>` followed by `Rootfs setup failed`).
 
 ---
 
@@ -197,7 +197,7 @@ Modes:
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/ls
     ```
-    - `<target-binary>` must be an executable regular ELF binary (checked via `access(X_OK)`, `S_ISREG`, and the `\x7fELF` magic bytes). Shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
+    - `<target-binary>` is validated by `is_binary()` (`sandbox.c:138-165`), which only checks that the path is executable (`access(X_OK)`), is a regular file (`S_ISREG`), and that its first four bytes are the ELF magic `\x7fELF`. This is a magic-bytes check, not full ELF validation: shell scripts and other non-ELF executables are rejected here with `"<path> is not a binary file"` (for example, `./sandbox /tmp/sb-review /tmp/sb-script --userns` on an executable shell script fails immediately with `/tmp/sb-script is not a binary file`), but a malformed file whose first four bytes happen to be `\x7fELF` — including an executable regular file containing only those four bytes — passes `is_binary()` and then fails later during `build_rootfs()`, typically at `ldd failed for <target>` followed by `Rootfs setup failed`.
     - Target-mode rootfs assembly is handled by `build_rootfs()` (`sandbox.c:650-713`), not by the shell-mode `essential_bins[]` path. It **always** creates the standard directory tree from `dirs[]` (`/bin`, `/usr/bin`, `/etc`, `/proc`, `/dev`, `/tmp`), **always** copies the requested target to `<rootfs>/usr/bin/<basename>` (`sandbox.c:666-670`), and **always** copies `/bin/sh` to `<rootfs>/bin/sh` (`sandbox.c:689-694`).
     - `build_rootfs()` also **always** copies shared-library dependencies for the requested target and for `/bin/sh` by calling `copy_ldd_deps(bin, rootfs)` and `copy_ldd_deps("/bin/sh", rootfs)` (`sandbox.c:695-698`).
     - Normal target execution later runs through `sandbox_main()` (`sandbox.c:621-630`), which always `execv()`s `/usr/bin/<basename>` inside the sandbox. That means the executed path, and therefore the target process's `argv[0]`, is always `/usr/bin/<basename>` in the non-`--trace` path.
