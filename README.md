@@ -249,7 +249,7 @@ Modes:
 - In shell mode, `setup_essential_environment()` copies every entry in `essential_bins[]`, then calls `create_dev_nodes()` and `create_etc_files()`
 - In target-binary mode, `build_rootfs()` always copies the target to `/usr/bin/<basename>`, conditionally also copies it to its original absolute path inside the rootfs when that path differs, always copies `/bin/sh`, always copies shared-library dependencies for the target and `/bin/sh`, conditionally includes `/usr/bin/strace` plus its shared-library dependencies when that copy succeeds (or fails closed under `--trace`), and then calls `create_dev_nodes()` and `create_etc_files()`
 - `create_dev_nodes()` prepares `/dev/null`, `/dev/zero`, and `/dev/tty`: in normal runs they are created as character device nodes, while in `--userns` they start as placeholder files that are later bind-mounted to the host devices
-- `create_etc_files()` always creates `/etc/`; it additionally writes `/etc/passwd` and `/etc/group` only when `--user` is set (the `if(drop_to_nobody)` gate at `sandbox.c:390-410`)
+- `create_etc_files()` always creates `<rootfs>/etc/`; it additionally writes `/etc/passwd` and `/etc/group` only when `--user` sets `drop_to_nobody` (the `if(drop_to_nobody)` gate at `sandbox.c:390-410`)
 - Optionally adds files specified in `--extras`, which can also copy files under paths such as `/etc/...`
 - Optionally traces binary with `strace` to discover runtime file dependencies
 - Optionally switches to UID/GID 65534 (`nobody`)
