@@ -178,6 +178,7 @@ Modes:
     sudo ./sandbox /tmp/mychroot /usr/bin/ls
     ```
     - `<target-binary>` must be an executable regular ELF binary (checked via `access(X_OK)`, `S_ISREG`, and the `\x7fELF` magic bytes). Shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
+    - Rootfs copy behavior (`build_rootfs()`, `sandbox.c:650-709`) — distinct from the host-side runtime prerequisites listed above: the target is **always** copied to `<rootfs>/usr/bin/<basename>` (`sandbox.c:666-670`) and `/bin/sh` is **always** copied to `<rootfs>/bin/sh` (`sandbox.c:689-694`). For absolute-path targets whose original path differs from `/usr/bin/<basename>` (e.g. `/usr/local/bin/foo`, `/sbin/foo`), the target is additionally copied to the same absolute path inside the rootfs (`sandbox.c:672-688`); this second copy is what the `--trace` path uses, because `trace_main` execs the absolute original path when `target[0] == '/'` (`sandbox.c:872-875`), whereas the normal (non-trace) execution path always execs `/usr/bin/<basename>` regardless of the input path (`sandbox.c:621-630`). Shared-library dependencies for both the target and `/bin/sh` are then discovered by invoking the host `ldd` (`copy_ldd_deps()`, `sandbox.c:237-309`) and copied into the rootfs. `/usr/bin/strace` is also copied when present on the host; a missing host strace is only fatal under `--trace` (`sandbox.c:699-704`).
 - **Trace a binary (copies all files accessed during run):**
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
