@@ -121,6 +121,7 @@ Modes:
 - Optionally traces binary with `strace` to discover runtime file dependencies
 - Optionally switches to UID/GID 65534 (`nobody`)
 - Optionally creates a user namespace with `--userns` for rootless operation: writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`, so the sandboxed process appears as `root` inside the namespace while retaining the caller's identity on the host. `--userns` cannot be combined with `--user` or `--trace`.
+- Sets `PR_SET_NO_NEW_PRIVS` via `prctl()` as the first step of `setup_sandbox_environment()` (sandbox.c:423), before `chroot` and before the capability bounding set is cleared or process capabilities are dropped. Once set, the bit is inherited across `execve()` and prevents the kernel from granting new privileges through setuid/setgid binaries (or file capabilities) executed inside the sandbox.
 - Clears the capability bounding set, drops to unprivileged UID/GID if requested, wipes environment variables with `clearenv()` and restores only `PATH=/bin:/usr/bin` and `HOME=/`, and finally drops all process capabilities
 - Execution splits into two distinct paths:
     - **Normal execution** (no `--trace`) runs through `sandbox_main()`, which calls `install_seccomp_filter()` to install a fail-closed x86_64-only seccomp allowlist before `execv()`. On non-x86_64 hosts `install_seccomp_filter()` returns an error and the sandbox fails closed without executing the target.
