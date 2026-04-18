@@ -207,6 +207,24 @@ Flag constraints (enforced at startup):
 - `--userns` cannot be combined with `--trace`.
 - `--userns` cannot be combined with `--user`.
 
+`main()` runs the root check (`sandbox.c:781-783`) **before** the incompatibility checks (`sandbox.c:785-795`), so whether an invalid invocation surfaces its conflict error or the generic root error depends on which flag combination is used. Concrete examples (each command shows the exact error produced):
+
+```bash
+# --userns bypasses the root check, so --userns combinations reach the
+# incompatibility checks without sudo:
+./sandbox /tmp/sb --userns --trace
+# → --userns is not compatible with --trace.
+./sandbox /tmp/sb --userns --user
+# → --userns is not compatible with --user.
+
+# --user --trace has no --userns, so the root check fires first when
+# unsudoed; sudo is required to reach the --user/--trace conflict:
+./sandbox /tmp/sb --user --trace
+# → This program must be run as root (or use --userns).
+sudo ./sandbox /tmp/sb --user --trace
+# → --user is not compatible with --trace.
+```
+
 Modes:
 
 - **Minimal shell sandbox:**
