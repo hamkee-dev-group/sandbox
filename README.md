@@ -73,6 +73,26 @@ make CC=gcc
 
 ---
 
+## Testing
+
+After building, run the smoke test:
+
+```bash
+make test
+```
+
+The `test` target runs `tests/smoke.sh`, which performs two checks:
+
+- Invokes `./sandbox` with no arguments and verifies the output is exactly:
+  ```
+  Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]
+  ```
+- Verifies that `./sandbox` exists and is executable (`-x`).
+
+This is a smoke test only — there are no unit tests, no CI, and no coverage of runtime sandboxing behavior. It just confirms the binary was built and prints the expected usage line.
+
+---
+
 ## Usage
 
 ```bash

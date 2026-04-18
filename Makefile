@@ -3,10 +3,14 @@ CFLAGS  := -Wall -Wextra -pedantic -g -O2 -fstack-protector-strong
 LDFLAGS := -lcap
 TARGET  := sandbox
 SRC     := sandbox.c
+TEST_SH := tests/smoke.sh
 
-.PHONY: all clean preflight
+.PHONY: all clean preflight test
 
 all: $(TARGET)
+
+test: $(TARGET)
+	./$(TEST_SH)
 
 preflight:
 	@command -v $(CC) >/dev/null 2>&1 || { echo "Error: compiler '$(CC)' not found. Install it or set CC to an available compiler."; exit 1; }
