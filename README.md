@@ -46,7 +46,12 @@
 
 - **Root privileges** — required for all modes except `--userns` (namespaces, chroot, mounts).
 - **`ldd` on the host `PATH`** — the only universal host-side runtime dependency. Resolved via `execlp("ldd", ...)`, so any location on `PATH` works. Used in both setup paths (target-binary mode and shell mode) to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
-- **`/usr/bin/strace`** — required **only** for `--trace`. Not needed for the shell sandbox or for non-trace target runs; `--trace` hard-fails if strace is missing on the host.
+- **`/usr/bin/strace`** — this bullet separates the **host-side runtime requirement** from the **rootfs copy behavior**, because they are not the same thing:
+    - **Host-side runtime requirement (when strace is mandatory):** strictly required **only** for `--trace`. If the host is missing `/usr/bin/strace`, `--trace` hard-fails with `Failed to copy strace (required for --trace)` — this is the fatal branch in `build_rootfs()` guarded by `if (trace_mode)` (`sandbox.c:702-705`). For the shell sandbox and for non-`--trace` target runs, strace is **not** a host-side requirement: those modes still start and run to completion when strace is absent on the host.
+    - **Rootfs copy behavior (when strace is attempted regardless of `--trace`):** both shell mode and target mode attempt to place `/usr/bin/strace` into the rootfs on every run, regardless of `--trace`:
+        - **Shell mode** lists `/usr/bin/strace` in the hardcoded `essential_bins[]` array (`sandbox.c:52-68`) and the essential-bins loop attempts to copy it like every other entry; if that copy fails it is logged as `Failed to copy essential bin: /usr/bin/strace` and skipped, same best-effort handling as the other essential bins (`sandbox.c:727-735`).
+        - **Target mode** (`build_rootfs()`) likewise calls `copy_file("/usr/bin/strace", <rootfs>/usr/bin/strace)` unconditionally (`sandbox.c:699-709`). Whether a `copy_file()` failure here is fatal depends solely on `trace_mode`: under `--trace` the `if (trace_mode)` branch returns `-1` and aborts setup; in all other runs the failure is silently tolerated and `build_rootfs()` continues (the `else` branch that runs `copy_ldd_deps("/usr/bin/strace", ...)` is only entered when the copy succeeded).
+    - **Observable consequence:** on a host with strace installed, a normal (non-`--trace`) run in either mode produces a rootfs containing `<rootfs>/usr/bin/strace`, even though that file is not required for the run to succeed.
 
   ```bash
   # Debian / Ubuntu
