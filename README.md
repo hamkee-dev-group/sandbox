@@ -149,6 +149,18 @@ Both `cppcheck` and `shellcheck` must be installed on the host (see [Development
 
 ---
 
+## Validation
+
+Run the combined test and lint checks:
+
+```bash
+make validate
+```
+
+The `validate` target is defined as `validate: test lint` in `Makefile:19` and runs the existing `test` and `lint` targets in sequence: first `tests/smoke.sh` from `make test`, then the `cppcheck` and `shellcheck` invocations from `make lint`.
+
+---
+
 ## Usage
 
 ```bash

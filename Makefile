@@ -5,7 +5,7 @@ TARGET  := sandbox
 SRC     := sandbox.c
 TEST_SH := tests/smoke.sh
 
-.PHONY: all clean preflight test lint
+.PHONY: all clean preflight test lint validate
 
 all: $(TARGET)
 
@@ -15,6 +15,8 @@ test: $(TARGET)
 lint:
 	cppcheck --quiet --enable=warning,performance,portability --check-level=reduced --suppress=normalCheckLevelMaxBranches --inline-suppr --error-exitcode=1 sandbox.c
 	shellcheck tests/smoke.sh
+
+validate: test lint
 
 preflight:
 	@command -v $(CC) >/dev/null 2>&1 || { echo "Error: compiler '$(CC)' not found. Install it or set CC to an available compiler."; exit 1; }
