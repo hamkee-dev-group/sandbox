@@ -57,6 +57,22 @@
 
 ---
 
+## Build
+
+From the repo root:
+
+```bash
+make
+```
+
+This produces `./sandbox`. To build with GCC instead of the default `clang`:
+
+```bash
+make CC=gcc
+```
+
+---
+
 ## Usage
 
 ```bash
