@@ -190,8 +190,14 @@ Modes:
 - **Add extra files:**
     ```bash
     sudo ./sandbox /tmp/mychroot --extras extras.txt
+    sudo ./sandbox /tmp/mychroot /usr/bin/ls --extras extras.txt
+    ./sandbox /tmp/mychroot --userns --extras extras.txt
+    sudo ./sandbox /tmp/mychroot /usr/bin/curl --extras extras.txt --trace "https://example.com"
     ```
     - `extras.txt` contains a list of absolute file paths, one per line.
+    - `--extras` **must be immediately followed by the list file**; the parser only accepts it when a filename argument is present (`sandbox.c:768-770`). A bare `--extras` with no filename is not recognized as a flag and is treated as a positional argument instead — e.g. `./sandbox /tmp/sbroot --userns --extras` ends up with `--extras` taken as the target binary and is rejected as `"--extras is not a binary file"`.
+    - Works with both the shell sandbox and target-binary runs, and can be combined with `--user` or `--userns`.
+    - If `--trace` is also used, `--extras <file>` must appear **before** `--trace`: once `--trace` is seen, the parser stops scanning flags and treats every remaining argument as a trace arg.
 
 ---
 
