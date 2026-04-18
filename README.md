@@ -186,7 +186,10 @@ Modes:
     sudo ./sandbox /tmp/mychroot /usr/bin/ls
     ```
     - `<target-binary>` must be an executable regular ELF binary (checked via `access(X_OK)`, `S_ISREG`, and the `\x7fELF` magic bytes). Shell scripts and other non-ELF executables are rejected with `"<path> is not a binary file"`.
-    - Rootfs copy behavior (`build_rootfs()`, `sandbox.c:650-709`) — distinct from the host-side runtime prerequisites listed above: the target is **always** copied to `<rootfs>/usr/bin/<basename>` (`sandbox.c:666-670`) and `/bin/sh` is **always** copied to `<rootfs>/bin/sh` (`sandbox.c:689-694`). For absolute-path targets whose original path differs from `/usr/bin/<basename>` (e.g. `/usr/local/bin/foo`, `/sbin/foo`), the target is additionally copied to the same absolute path inside the rootfs (`sandbox.c:672-688`); this second copy is what the `--trace` path uses, because `trace_main` execs the absolute original path when `target[0] == '/'` (`sandbox.c:872-875`), whereas the normal (non-trace) execution path always execs `/usr/bin/<basename>` regardless of the input path (`sandbox.c:621-630`). Shared-library dependencies for both the target and `/bin/sh` are then discovered by invoking the host `ldd` (`copy_ldd_deps()`, `sandbox.c:237-309`) and copied into the rootfs. `/usr/bin/strace` is also copied when present on the host; a missing host strace is only fatal under `--trace` (`sandbox.c:699-704`).
+    - Target-mode rootfs assembly (`build_rootfs()`, `sandbox.c:650-709`) is broader than just "copy the target": it first creates the standard directory tree from `dirs[]`, then **always** copies the requested target to `<rootfs>/usr/bin/<basename>` (`sandbox.c:666-670`) and **always** copies `/bin/sh` to `<rootfs>/bin/sh` (`sandbox.c:689-694`).
+    - For an absolute-path target whose original path differs from `/usr/bin/<basename>` (for example `/usr/local/bin/foo` or `/sbin/foo`), `build_rootfs()` additionally copies that same host binary to `<rootfs><absolute-target-path>` after creating any missing parent directories (`sandbox.c:672-688`). This second copy is what the `--trace` path uses, because `trace_main()` execs the original absolute path when `target[0] == '/'` (`sandbox.c:872-875`), whereas the normal non-trace path always execs `/usr/bin/<basename>` (`sandbox.c:621-630`).
+    - `build_rootfs()` then copies shared-library dependencies for the target and for `/bin/sh` by calling `copy_ldd_deps(bin, rootfs)` and `copy_ldd_deps("/bin/sh", rootfs)` (`sandbox.c:695-698`). It also always attempts `copy_file("/usr/bin/strace", <rootfs>/usr/bin/strace)` (`sandbox.c:699-709`): if that copy succeeds, it immediately follows with `copy_ldd_deps("/usr/bin/strace", rootfs)`; if the copy fails, setup aborts only when `trace_mode` is active, otherwise target-mode setup continues without strace.
+    - After the file-copy phase, target mode also creates runtime-only content inside the rootfs by calling `create_dev_nodes(rootfs)` and `create_etc_files(rootfs)` (`sandbox.c:709-710`), which populate `/dev/null`, `/dev/zero`, `/dev/tty`, `/etc/passwd`, and `/etc/group` for the chroot.
 - **Trace a binary (copies all files accessed during run):**
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
@@ -223,8 +226,8 @@ Modes:
 ## How It Works
 
 - Creates a new mount, PID, and UTS namespace
-- Builds up a new root filesystem (`<rootfs>`) with essential binaries/libraries
-- Optionally copies a target binary and its dependencies
+- Builds up a new root filesystem (`<rootfs>`) by creating the standard directory tree plus runtime files such as `/dev/null`, `/dev/zero`, `/dev/tty`, `/etc/passwd`, and `/etc/group`
+- In target-binary mode, `build_rootfs()` always copies the target to `/usr/bin/<basename>`, optionally also to its original absolute path inside the rootfs when that path differs, always copies `/bin/sh`, copies shared-library dependencies for the target and `/bin/sh` via `copy_ldd_deps()`, and, when `/usr/bin/strace` was copied successfully, also copies `strace`'s shared-library dependencies
 - Optionally adds files specified in `--extras`
 - Optionally traces binary with `strace` to discover runtime file dependencies
 - Optionally switches to UID/GID 65534 (`nobody`)
