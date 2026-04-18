@@ -176,7 +176,7 @@ Modes:
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
     ```
     - `--trace` requires a target binary and cannot be combined with `--user` or `--userns`.
-    - `--trace` must appear **after** all other sandbox flags. It ends sandbox flag parsing, and every token after `--trace` is passed as an argument to the target binary — not to `sandbox` and not to `strace`. So `./sandbox /tmp/sbroot /bin/echo --trace --userns` runs `/bin/echo --userns` inside the sandbox; it does **not** enable user-namespace mode.
+    - `--trace` consumes all subsequent argv tokens as arguments to the traced binary, so `--user`, `--userns`, and `--extras <file>` must appear **before** `--trace`; otherwise they are silently passed to the target binary (not to `sandbox` and not to `strace`) and the `--user`/`--userns` conflict checks above are bypassed. For example, `./sandbox /tmp/sbroot /bin/echo --trace --userns` runs `/bin/echo --userns` inside the sandbox and does **not** enable user-namespace mode.
 - **Sandbox as unprivileged user (`nobody`):**
     ```bash
     sudo ./sandbox /tmp/mychroot --user
