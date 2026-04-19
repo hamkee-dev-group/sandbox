@@ -508,7 +508,7 @@ int install_seccomp_filter(void)
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, __X32_SYSCALL_BIT, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        /* Post-setup runtime only: file, memory, signal, and child-process syscalls. */
+         
         SECCOMP_ALLOW_SYSCALL(__NR_execve),
         SECCOMP_ALLOW_SYSCALL(__NR_exit),
         SECCOMP_ALLOW_SYSCALL(__NR_exit_group),
@@ -641,7 +641,7 @@ int sandbox_exec(char *const argv[])
 {
     if (setup_sandbox_environment() < 0)
         return 1;
-    /* --trace runs through this path and needs ptrace syscalls available. */
+     
     execv(argv[0], argv);
     perror("execv sandbox_exec");
     return 1;
@@ -929,7 +929,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Normal sandboxed run (with or without --user)
+    
     int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
     if (userns_mode) {
         flags |= CLONE_NEWUSER;
