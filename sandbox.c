@@ -671,6 +671,9 @@ int build_rootfs(const char *bin)
 {
     char dst[PATH_MAX];
     char *base;
+    char target_path[PATH_MAX];
+    size_t rootfs_len;
+    size_t target_path_len;
 
     for (int i = 0; dirs[i]; ++i)
     {
@@ -689,7 +692,17 @@ int build_rootfs(const char *bin)
     }
     snprintf(target_name, sizeof(target_name), "%s", base);
 
-    snprintf(dst, sizeof(dst), "%s/usr/bin/%s", rootfs, target_name);
+    if (build_usr_bin_target_path(target_path, sizeof(target_path), target_name) < 0)
+        return -1;
+
+    rootfs_len = strlen(rootfs);
+    target_path_len = strlen(target_path);
+    if (rootfs_len + target_path_len >= sizeof(dst)) {
+        fprintf(stderr, "Target path too long\n");
+        return -1;
+    }
+    memcpy(dst, rootfs, rootfs_len);
+    memcpy(dst + rootfs_len, target_path, target_path_len + 1);
     if (copy_file(bin, dst) < 0)
     {
         fprintf(stderr, "Failed to copy target binary\n");
