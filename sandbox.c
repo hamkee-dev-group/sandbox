@@ -35,10 +35,11 @@
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
 
 #define PATH_MAX 1024
+#define TARGET_NAME_MAX (PATH_MAX - sizeof("/usr/bin/"))
 #define STACK_SIZE (1024 * 1024)
 static char child_stack[STACK_SIZE];
 char *rootfs;
-char target_name[PATH_MAX];
+char target_name[TARGET_NAME_MAX + 1];
 int target_argc = 0;
 char *target_args[64];
 int drop_to_nobody = 0;
@@ -650,6 +651,7 @@ int sandbox_exec(char *const argv[])
 int build_rootfs(const char *bin)
 {
     char dst[PATH_MAX];
+    char *base;
 
     for (int i = 0; dirs[i]; ++i)
     {
@@ -661,7 +663,12 @@ int build_rootfs(const char *bin)
             return -1;
         }
     }
-    snprintf(target_name, sizeof(target_name), "%s", basename((char *)bin));
+    base = basename((char *)bin);
+    if (strlen(base) > TARGET_NAME_MAX) {
+        fprintf(stderr, "Target basename too long\n");
+        return -1;
+    }
+    snprintf(target_name, sizeof(target_name), "%s", base);
 
     snprintf(dst, sizeof(dst), "%s/usr/bin/%s", rootfs, target_name);
     if (copy_file(bin, dst) < 0)
