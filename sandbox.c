@@ -67,6 +67,24 @@ const char *essential_bins[] = {
     "/usr/bin/du",
     NULL
 };
+
+int build_usr_bin_target_path(char *dst, size_t dst_size, const char *name) {
+    int n;
+
+    if (strlen(name) > TARGET_NAME_MAX) {
+        fprintf(stderr, "Target basename too long\n");
+        return -1;
+    }
+
+    n = snprintf(dst, dst_size, "/usr/bin/%s", name);
+    if (n < 0 || (size_t)n >= dst_size) {
+        fprintf(stderr, "Target path too long\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int drop_bounding_caps(void) {
     int cap = 0;
     for (;; cap++) {
@@ -621,7 +639,8 @@ int sandbox_main(void *arg)
 
     if (target_name[0] != '\0') {
         char target_path[PATH_MAX];
-        snprintf(target_path, sizeof(target_path), "/usr/bin/%s", target_name);
+        if (build_usr_bin_target_path(target_path, sizeof(target_path), target_name) < 0)
+            return 1;
         char *args[66];
         int j = 0;
         args[j++] = target_path;
@@ -878,8 +897,8 @@ int main(int argc, char **argv)
         static char trace_target[PATH_MAX];
         if (target[0] == '/')
             snprintf(trace_target, sizeof(trace_target), "%s", target);
-        else
-            snprintf(trace_target, sizeof(trace_target), "/usr/bin/%s", target_name);
+        else if (build_usr_bin_target_path(trace_target, sizeof(trace_target), target_name) < 0)
+            return 1;
         trace_argv[0] = "/usr/bin/strace";
         trace_argv[1] = "-f";
         trace_argv[2] = "-e";
