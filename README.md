@@ -63,7 +63,7 @@ These are the host-side tools `sandbox` itself invokes at runtime. For the separ
 
 ### Shell-mode rootfs inventory
 
-Shell mode assembles its rootfs by copying a hardcoded list of host binaries into the chroot so that the interactive shell has a usable toolset. These paths are **copied** from the host (not invoked by `sandbox` itself) and are therefore separate from the **Runtime** tool list above. The list is `essential_bins[]` (`sandbox.c:52-68`), and `setup_essential_environment()` (`sandbox.c:727-735`) copies each entry from the exact host path shown below; any missing source aborts setup with `Failed to copy essential bin: <path>`, and a subsequent `copy_ldd_deps()` failure for the same entry likewise aborts setup:
+Shell mode assembles its rootfs by attempting to copy a hardcoded list of host binaries into the chroot so that the interactive shell has a small fixed toolset. These paths are **copied** from the host (not invoked by `sandbox` itself) and are therefore separate from the **Runtime** tool list above. The list is `essential_bins[]` (`sandbox.c:52-68`), and `setup_essential_environment()` (`sandbox.c:727-735`) attempts each entry from the exact host path shown below; any missing source aborts setup with `Failed to copy essential bin: <path>`, and a subsequent `copy_ldd_deps()` failure for the same entry likewise aborts setup:
 
 - `/bin/sh`
 - `/bin/ls`
@@ -77,7 +77,7 @@ Shell mode assembles its rootfs by copying a hardcoded list of host binaries int
 - `/usr/bin/wc`
 - `/usr/bin/stat`
 - `/usr/bin/ldd`
-- `/usr/bin/strace`
+- `/usr/bin/strace` (attempted as a shell-mode tool copy, not invoked by shell mode itself)
 - `/usr/bin/du`
 
 ### Target-mode rootfs inventory
@@ -238,7 +238,7 @@ Modes:
     ```bash
     sudo ./sandbox /tmp/mychroot
     ```
-    - Drops you into `/bin/sh`. `setup_essential_environment()` copies **exactly** the set of binaries hardcoded in `essential_bins[]` (`sandbox.c:52-68`) into the rootfs — nothing more, nothing less: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`.
+    - Drops you into `/bin/sh`. `setup_essential_environment()` attempts the set of binaries hardcoded in `essential_bins[]` (`sandbox.c:52-68`) — and no shell tools outside that list: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`.
     - The copy loop (`sandbox.c:727-735`) is strict, not best-effort: any `copy_file()` failure for an entry (source absent on the host, destination open/write error, or any other I/O failure) is logged as `Failed to copy essential bin: <path>` and aborts setup with `return -1`, and a subsequent `copy_ldd_deps()` failure for the same binary likewise aborts setup. A successful shell-mode run therefore guarantees the rootfs contains every entry in `essential_bins[]`; verify on a host where those binaries exist with:
       ```bash
       sudo find <rootfs>/bin <rootfs>/usr/bin -maxdepth 1 -type f | sort
