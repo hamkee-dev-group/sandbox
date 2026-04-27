@@ -45,6 +45,7 @@ char *target_args[64];
 int drop_to_nobody = 0;
 int trace_mode = 0;
 int userns_mode = 0;
+int prepare_only = 0;
 int userns_pipe[2] = {-1, -1};
 
 int sandbox_exec(char *const argv[]);
@@ -783,23 +784,36 @@ int main(int argc, char **argv)
 {
     int extras_idx = -1;
     int trace_idx = -1;
+    int arg_start = 2;
     const char *target = NULL;
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <rootfs> [<target-binary>] [--user] [--userns] [--prepare-only] [--extras <file>] [--trace <args...>]\n", argv[0]);
         return 1;
     }
-    rootfs = argv[1];
+    if (strcmp(argv[1], "--prepare-only") == 0) {
+        prepare_only = 1;
+        if (argc < 3) {
+            fprintf(stderr, "Usage: %s <rootfs> [<target-binary>] [--user] [--userns] [--prepare-only] [--extras <file>] [--trace <args...>]\n", argv[0]);
+            return 1;
+        }
+        rootfs = argv[2];
+        arg_start = 3;
+    } else {
+        rootfs = argv[1];
+    }
 
     if (strlen(rootfs) >= PATH_MAX - 64) {
         fprintf(stderr, "Rootfs path too long\n");
         return 1;
     }
 
-    for (int i = 2; i < argc; ++i) {
+    for (int i = arg_start; i < argc; ++i) {
         if (strcmp(argv[i], "--user") == 0) {
             drop_to_nobody = 1;
         } else if (strcmp(argv[i], "--userns") == 0) {
             userns_mode = 1;
+        } else if (strcmp(argv[i], "--prepare-only") == 0) {
+            prepare_only = 1;
         } else if (strcmp(argv[i], "--trace") == 0) {
             trace_mode = 1;
             trace_idx = i;
@@ -816,6 +830,22 @@ int main(int argc, char **argv)
             }
             target_args[target_argc++] = argv[i];
         }
+    }
+    if (prepare_only && !target) {
+        fprintf(stderr, "--prepare-only requires a target binary.\n");
+        return 1;
+    }
+    if (prepare_only && trace_mode) {
+        fprintf(stderr, "--prepare-only is not compatible with --trace.\n");
+        return 1;
+    }
+    if (prepare_only && drop_to_nobody) {
+        fprintf(stderr, "--prepare-only is not compatible with --user.\n");
+        return 1;
+    }
+    if (prepare_only && userns_mode) {
+        fprintf(stderr, "--prepare-only is not compatible with --userns.\n");
+        return 1;
     }
     if (geteuid() != 0 && !userns_mode) {
         fprintf(stderr, "This program must be run as root (or use --userns).\n");
@@ -892,6 +922,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "Failed to copy extras\n");
         return 1;
     }
+    if (prepare_only)
+        return 0;
 
     if (trace_mode) {
         char tmpfile[] = "/tmp/straceXXXXXX";

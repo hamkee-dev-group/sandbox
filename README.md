@@ -12,6 +12,7 @@
 - 🚫 **Clears the capability bounding set** before optional UID/GID drop, then **drops all process capabilities** using `libcap` after wiping the environment
 - 👤 **Optionally drops to the unprivileged `nobody` user** (`--user`)
 - 🔍 **Supports tracing with `strace`** (`--trace`)
+- 🧱 **Can assemble a target rootfs without running it** (`--prepare-only`)
 - 🏗️ **Auto-copies required dynamic libraries** with `ldd`
 - 🧩 **Extensible**: add extra files with `--extras <file>`
 - 🗄️ **Auto-populates `/etc/passwd` and `/etc/group`** as needed
@@ -44,7 +45,7 @@
 
 ### Runtime
 
-These are the host-side tools `sandbox` itself invokes at runtime. For the separate list of binaries that shell mode and target mode **copy** from the host into the rootfs (a different kind of dependency), see **Shell-mode rootfs inventory** and **Target-mode rootfs inventory** below.
+These are the host-side tools `sandbox` itself invokes at runtime. For the separate list of binaries that shell mode, target mode, and prepare-only mode **copy** from the host into the rootfs (a different kind of dependency), see **Shell-mode rootfs inventory** and **Target-mode rootfs inventory** below.
 
 - **Root privileges** — required for all modes except `--userns` (namespaces, chroot, mounts).
 - **`ldd` on the host `PATH`** — required in every mode. `copy_ldd_deps()` invokes it via `execlp("ldd", "ldd", bin, ...)` (`sandbox.c:258-264`), so any location on `PATH` works. Used in both target mode and shell mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
@@ -82,7 +83,7 @@ Shell mode assembles its rootfs by attempting to copy a hardcoded list of host b
 
 ### Target-mode rootfs inventory
 
-Target mode (invocations that pass a target binary) builds its rootfs via `build_rootfs()` (`sandbox.c:650-713`), which copies the target binary plus two fixed host paths into the chroot. These paths are **copied** from the host (not invoked by `sandbox` itself) and are therefore separate from the **Runtime** tool list above:
+Target mode and prepare-only mode (invocations that pass a target binary) build the target rootfs via `build_rootfs()` (`sandbox.c:650-713`), which copies the target binary plus two fixed host paths into the chroot. These paths are **copied** from the host (not invoked by `sandbox` itself) and are therefore separate from the **Runtime** tool list above:
 
 - **Target binary** — copied to `/usr/bin/<basename>` inside the rootfs, where `<basename>` is the final path component of the host target. Normal target mode later executes this `/usr/bin/<basename>` path. If the original target token is an absolute path and differs from `/usr/bin/<basename>`, `build_rootfs()` also mirrors the target at that absolute path inside the rootfs so trace mode can run the original absolute path.
 - **`/bin/sh`** — unconditionally copied. Setup aborts with `Failed to copy /bin/sh` if the host source is missing (`sandbox.c:689-694`).
@@ -138,15 +139,17 @@ After building, run the smoke test:
 make test
 ```
 
-The `test` target runs `tests/smoke.sh`, which performs two checks:
+The `test` target runs `tests/smoke.sh`, which performs these checks:
 
 - Invokes `./sandbox` with no arguments and verifies the output is exactly:
   ```
-  Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]
+  Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--prepare-only] [--extras <file>] [--trace <args...>]
   ```
 - Verifies that `./sandbox` exists and is executable (`-x`).
+- Verifies targeted `--prepare-only` parser failures for missing target, `--trace`, `--user`, and `--userns`.
+- When run as root, verifies successful `--prepare-only` rootfs assembly with `/bin/false` and confirms the target was copied rather than executed. When run without root, this assembly check is skipped because the current target rootfs path creates device nodes.
 
-This is a smoke test only — there are no unit tests, no CI, and no coverage of runtime sandboxing behavior. It just confirms the binary was built and prints the expected usage line.
+This is still a smoke test suite — there are no unit tests, no CI, and no coverage of runtime sandboxing behavior.
 
 ---
 
@@ -188,33 +191,35 @@ The `validate` target is defined as `validate: test lint` in `Makefile:19` and r
 ## Usage
 
 ```bash
-Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--extras <file>] [--trace <args...>]
+Usage: ./sandbox <rootfs> [<target-binary>] [--user] [--userns] [--prepare-only] [--extras <file>] [--trace <args...>]
 ```
 
 Run as root (e.g., via `sudo`) unless `--userns` is used.
 
 `<target-binary>` is treated as the literal filesystem path token you provide, not something resolved via the host or sandbox `PATH`. Absolute paths such as `/usr/bin/ls` work, explicit relative paths such as `./echo-local` or `subdir/tool` work, and a bare name such as `ls` works only if an executable file by that exact name exists in the current working directory.
 
-After `<rootfs>`, `sandbox` scans `argv` left-to-right until `--trace` (`sandbox.c:759-779`). At each position, `--user`, `--userns`, and `--extras <file>` are recognized as options and may appear either before or after the target binary; `--extras` also consumes the following token as its list-file path, so that token is **not** passed through to the target. Any remaining token is positional: the first positional token becomes `<target-binary>`, and every later positional token is collected into `target_args[]`. The parser matches exactly those four literal strings — `--user`, `--userns`, `--extras`, `--trace` — via `strcmp` and has **no** "unknown option" rejection branch (`sandbox.c:759-779`); any other token, including unrecognized `--xxx` flags such as `--help`, `--version`, or `--foo`, and mistyped variants like `-user` or `—user` (en/em dash), falls through to the same positional arm, so the first such token is assigned to `target` and later ones are appended to `target_args[]`. For example, `./sandbox /tmp/x --help` sets `target = "--help"`: when run without root it fails the root check at `sandbox.c:781-784` first, and under `sudo` it reaches the binary check and exits with `--help is not a binary file` (`sandbox.c:844-847`) — there is no built-in `--help`/`--version` output. Whether those later positionals actually reach the target depends on the execution path:
+After `<rootfs>`, `sandbox` scans `argv` left-to-right until `--trace` (`sandbox.c:759-779`). At each position, `--user`, `--userns`, `--prepare-only`, and `--extras <file>` are recognized as options and may appear either before or after the target binary; `--extras` also consumes the following token as its list-file path, so that token is **not** passed through to the target. Any remaining token is positional: the first positional token becomes `<target-binary>`, and every later positional token is collected into `target_args[]`. The parser matches exactly those five literal strings — `--user`, `--userns`, `--prepare-only`, `--extras`, `--trace` — via `strcmp` and has **no** "unknown option" rejection branch (`sandbox.c:759-779`); any other token, including unrecognized `--xxx` flags such as `--help`, `--version`, or `--foo`, and mistyped variants like `-user` or `—user` (en/em dash), falls through to the same positional arm, so the first such token is assigned to `target` and later ones are appended to `target_args[]`. For example, `./sandbox /tmp/x --help` sets `target = "--help"`: when run without root it fails the root check at `sandbox.c:781-784` first, and under `sudo` it reaches the binary check and exits with `--help is not a binary file` (`sandbox.c:844-847`) — there is no built-in `--help`/`--version` output. Whether those later positionals actually reach the target depends on the execution path:
 
 - **Normal (non-`--trace`) path:** `sandbox_main()` reads `target_args[]` and forwards each entry as an argument to the executed target (`sandbox.c:621-629`). For example, `./sandbox /tmp/x2 --userns /bin/echo hi` runs `/bin/echo hi`, and `./sandbox /tmp/sb-review /bin/echo one --userns two` runs `/bin/echo one two`.
 - **`--trace` path:** `target_args[]` is never read — `trace_argv[]` is rebuilt only from the selected target binary plus tokens **after** `--trace` (`sandbox.c:866-885`), so any positional collected between `<target-binary>` and `--trace` is silently dropped. For example, `sudo ./sandbox /tmp/sb-review /bin/echo one --trace two` traces `/bin/echo two` (the pre-`--trace` `one` is dropped). See the `--trace` paragraph below and the **Trace a binary** mode for the full rules.
 
 `--trace` terminates sandbox option parsing: when the parser encounters it, it records the index and immediately `break`s out of the option loop (`sandbox.c:764-767`), after which the traced command line is built from every token after `--trace` (`sandbox.c:866-885`). All sandbox flags (`--user`, `--userns`, `--extras <file>`) must therefore appear **before** `--trace`; every token after `--trace` is appended to the target binary's argv and is never interpreted as a flag for `sandbox` or `strace`. Intended **target arguments must also appear after `--trace`**: any positional tokens collected between `<target-binary>` and `--trace` are stored in `target_args[]`, which is only read by the normal execution path in `sandbox_main()` (`sandbox.c:621-629`) — the trace path builds `trace_argv[]` exclusively from tokens after `--trace` (`sandbox.c:866-885`) and therefore silently discards those pre-`--trace` positional args. For example, `sudo ./sandbox /tmp/x /bin/echo one --trace two` traces `/bin/echo two` (the `one` is dropped), while `sudo ./sandbox /tmp/x /bin/echo --trace one two` traces `/bin/echo one two`. The ordering effect shows up in which error fires: `./sandbox /tmp/x /bin/echo --userns --trace` fails with `--userns is not compatible with --trace.` because `--userns` was parsed as a sandbox flag before the boundary and tripped the conflict check, whereas `./sandbox /tmp/x /bin/echo --trace --userns` (run non-root) fails with `This program must be run as root (or use --userns).` — parsing stopped at `--trace`, so the second `--userns` was passed through to `/bin/echo` as an argument, the `--userns`/`--trace` conflict check never ran, and the root check fired first instead.
 
-`--extras <file>` is available in shell mode, normal target-binary mode, and traced target-binary mode. There is no `--extras`-specific incompatibility with `--user`, `--userns`, or `--trace`; the only startup flag conflicts are the ones listed below.
+`--extras <file>` is available in shell mode, normal target-binary mode, traced target-binary mode, and prepare-only mode. There is no `--extras`-specific incompatibility with `--user`, `--userns`, `--prepare-only`, or `--trace`; the only startup flag conflicts are the ones listed below.
 
 ### Modes
 
 Flag constraints (enforced at startup):
 
 - `--trace` requires a target binary.
+- `--prepare-only` requires a target binary.
+- `--prepare-only` cannot be combined with `--trace`, `--user`, or `--userns`.
 - `--user` cannot be combined with `--trace`.
 - `--userns` cannot be combined with `--trace`.
 - `--userns` cannot be combined with `--user`.
 - `--extras` has no additional startup compatibility restriction.
 
-`main()` checks startup constraints in this order: root first (`sandbox.c:781-783`), then flag incompatibilities (`sandbox.c:785-795`), then `--trace` without a target binary (`sandbox.c:797-799`). That ordering affects which stderr line you see first. For example, `./sandbox /tmp/sb --trace` fails with `This program must be run as root (or use --userns).` before it can reach `--trace requires a target binary.`, while `sudo ./sandbox /tmp/sb --trace` reaches the later check and prints `--trace requires a target binary.`. Concrete examples (each command shows the exact error produced):
+`main()` checks `--prepare-only` constraints before the root check so prepare-only misuse reports a direct error even without `sudo`. The older runtime constraints still run after the root check, so that ordering affects which stderr line you see first. For example, `./sandbox /tmp/sb --trace` fails with `This program must be run as root (or use --userns).` before it can reach `--trace requires a target binary.`, while `sudo ./sandbox /tmp/sb --trace` reaches the later check and prints `--trace requires a target binary.`. Concrete examples (each command shows the exact error produced):
 
 ```bash
 # --userns bypasses the root check, so --userns combinations reach the
@@ -230,6 +235,11 @@ Flag constraints (enforced at startup):
 # → This program must be run as root (or use --userns).
 sudo ./sandbox /tmp/sb --user --trace
 # → --user is not compatible with --trace.
+
+./sandbox /tmp/sb --prepare-only
+# → --prepare-only requires a target binary.
+./sandbox /tmp/sb /bin/true --prepare-only --userns
+# → --prepare-only is not compatible with --userns.
 ```
 
 Modes:
@@ -255,6 +265,39 @@ Modes:
     - If `<target-binary>` is an absolute path and that path differs from `/usr/bin/<basename>` (for example `/usr/local/bin/foo` or `/sbin/foo`), `build_rootfs()` additionally copies the same host binary to `<rootfs><absolute-target-path>` after creating any missing parent directories (`sandbox.c:672-688`). That extra copy is conditional on the input path and exists for path compatibility only; the normal non-`--trace` `execv()` call still uses `/usr/bin/<basename>`, not `<absolute-target-path>`.
     - `build_rootfs()` also attempts to copy `/usr/bin/strace` to `<rootfs>/usr/bin/strace` on every target-mode run (`sandbox.c:699-709`). If that initial `copy_file()` fails, setup aborts only when `--trace` is active; otherwise non-`--trace` target mode continues without `strace` in the rootfs. If the copy succeeds, `build_rootfs()` then calls `copy_ldd_deps("/usr/bin/strace", rootfs)`, and any failure there aborts setup in both trace and non-trace runs.
     - After those copies, `build_rootfs()` calls `create_dev_nodes(rootfs)` and `create_etc_files(rootfs)` (`sandbox.c:710`). That always ensures `<rootfs>/dev` and `<rootfs>/etc` exist. Outside `--userns`, `create_dev_nodes()` creates `/dev/null`, `/dev/zero`, and `/dev/tty` as character device nodes; in `--userns`, it creates placeholder files that `setup_sandbox_environment()` later bind-mounts over with the host devices. `create_etc_files()` always creates `<rootfs>/etc/`; it additionally writes `/etc/passwd` and `/etc/group` only when `--user` is set (the `if(drop_to_nobody)` gate at `sandbox.c:390-410`), and `--extras` may add other files under `/etc` regardless of mode.
+- **Prepare a target rootfs without running it:**
+    ```bash
+    sudo ./sandbox /tmp/app-rootfs /bin/true --prepare-only
+    ```
+    - `--prepare-only` validates the target through the same binary validation path as target mode, builds the same target rootfs, applies `--extras <file>` if provided, and exits `0` on success.
+    - It can be passed after the rootfs/target like other sandbox flags, or as a leading compatibility form: `sudo ./sandbox --prepare-only /tmp/app-rootfs /bin/true`.
+    - It is not a sandbox enforcement mode. It does not run the target, start an interactive shell, call `clone()`, call `chroot()`, mount `/proc`, install seccomp, drop capabilities, drop UID/GID, or apply Landlock.
+    - It is intended for pipelines where `sandbox` is responsible for rootfs assembly and another tool, such as `landlockd`, performs the actual runtime policy enforcement.
+    - The current implementation rejects `--prepare-only` with `--trace`, `--user`, or `--userns`. Because it uses the same non-userns target rootfs assembly path as normal target mode, it should be run as root when device nodes need to be created.
+
+    Minimal pipeline:
+
+    ```sh
+    sudo ./sandbox /tmp/app-rootfs /bin/true --prepare-only
+    landlockd run --policy-file /tmp/app-policy.toml -- /usr/bin/true
+    ```
+
+    Example `/tmp/app-policy.toml`:
+
+    ```toml
+    version = 1
+
+    [[fs_layer]]
+    handled_access_fs = ["execute", "read_file", "read_dir"]
+
+      [[fs_layer.rule]]
+      path = "/tmp/app-rootfs"
+      allowed_access = ["execute", "read_file", "read_dir"]
+
+    [runtime]
+    root = "/tmp/app-rootfs"
+    cwd = "/"
+    ```
 - **Trace a binary (replays a filtered subset of strace-reported paths into the rootfs):**
     ```bash
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --trace "https://example.com"
@@ -302,7 +345,8 @@ Modes:
 - Creates a new mount, PID, and UTS namespace
 - Builds up a new root filesystem (`<rootfs>`) by creating the standard directory tree from `dirs[]`: `/bin`, `/usr/bin`, `/etc`, `/proc`, `/dev`, and `/tmp`. `/etc` itself is always created, but `/etc/passwd` and `/etc/group` are only written when `--user` is passed (the `if(drop_to_nobody)` gate at `sandbox.c:390`)
 - In shell mode, `setup_essential_environment()` copies every entry in `essential_bins[]`, then calls `create_dev_nodes()` and `create_etc_files()`
-- In target-binary mode, `build_rootfs()` always copies the target to `/usr/bin/<basename>`, conditionally also copies it to its original absolute path inside the rootfs when that path differs, always copies `/bin/sh`, always copies shared-library dependencies for the target and `/bin/sh`, attempts to copy `/usr/bin/strace` on every run, tolerates only the initial `copy_file("/usr/bin/strace", ...)` failure in non-`--trace` mode, aborts on that same failure under `--trace`, and aborts in both modes if the later `copy_ldd_deps("/usr/bin/strace", rootfs)` call fails, and then calls `create_dev_nodes()` and `create_etc_files()`
+- In target-binary and prepare-only modes, `build_rootfs()` always copies the target to `/usr/bin/<basename>`, conditionally also copies it to its original absolute path inside the rootfs when that path differs, always copies `/bin/sh`, always copies shared-library dependencies for the target and `/bin/sh`, attempts to copy `/usr/bin/strace` on every run, tolerates only the initial `copy_file("/usr/bin/strace", ...)` failure in non-`--trace` mode, aborts on that same failure under `--trace`, and aborts in both modes if the later `copy_ldd_deps("/usr/bin/strace", rootfs)` call fails, and then calls `create_dev_nodes()` and `create_etc_files()`
+- In prepare-only mode, `main()` returns immediately after `build_rootfs()` and optional `--extras` processing. It does not enter the runtime setup path, so no namespace clone, chroot, `/proc` mount, seccomp filter, UID/GID drop, capability drop, shell, target execution, or Landlock enforcement occurs.
 - `create_dev_nodes()` prepares `/dev/null`, `/dev/zero`, and `/dev/tty`: in normal runs they are created as character device nodes, while in `--userns` they start as placeholder files that are later bind-mounted to the host devices
 - `create_etc_files()` always creates `<rootfs>/etc/`; it additionally writes `/etc/passwd` and `/etc/group` only when `--user` sets `drop_to_nobody` (the `if(drop_to_nobody)` gate at `sandbox.c:390-410`)
 - Optionally adds files specified in `--extras`, which can also copy files under paths such as `/etc/...`. Only list lines whose first byte is `/` are copied (`sandbox.c:322-326`); blank/relative entries are silently skipped, and a per-entry `copy_file()` failure prints `[WARN] Failed to copy extra: <path>` and continues rather than aborting the run (`sandbox.c:329-332`) — only a failure to open the list file itself aborts with `Failed to copy extras` (`sandbox.c:316-320`, `sandbox.c:807-809`, `sandbox.c:852-854`)
