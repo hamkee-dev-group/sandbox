@@ -84,6 +84,7 @@ Shell mode assembles its rootfs by copying a hardcoded list of host binaries int
 
 Target mode (invocations that pass a target binary) builds its rootfs via `build_rootfs()` (`sandbox.c:650-713`), which copies the target binary plus two fixed host paths into the chroot. These paths are **copied** from the host (not invoked by `sandbox` itself) and are therefore separate from the **Runtime** tool list above:
 
+- **Target binary** — copied to `/usr/bin/<basename>` inside the rootfs, where `<basename>` is the final path component of the host target. Normal target mode later executes this `/usr/bin/<basename>` path. If the original target token is an absolute path and differs from `/usr/bin/<basename>`, `build_rootfs()` also mirrors the target at that absolute path inside the rootfs so trace mode can run the original absolute path.
 - **`/bin/sh`** — unconditionally copied. Setup aborts with `Failed to copy /bin/sh` if the host source is missing (`sandbox.c:689-694`).
 - **`/usr/bin/strace`** — partially best-effort without `--trace`; strictly required with `--trace`. `build_rootfs()` first attempts `copy_file("/usr/bin/strace", ...)` (`sandbox.c:699-709`); if that initial copy fails and `trace_mode` is set, setup aborts with `Failed to copy strace (required for --trace)`, otherwise non-`--trace` target mode continues without `strace` in the rootfs. But if the copy succeeds and the later `copy_ldd_deps("/usr/bin/strace", rootfs)` call fails, `build_rootfs()` returns `-1` unconditionally in both trace and non-trace runs.
 
