@@ -13,6 +13,7 @@
 - 👤 **Optionally drops to the unprivileged `nobody` user** (`--user`)
 - 🔍 **Supports tracing with `strace`** (`--trace`)
 - 🧱 **Can assemble a target rootfs without running it** (`--prepare-only`)
+- 🐚 **Shell mode includes fixed essential binaries**: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`
 - 🏗️ **Auto-copies required dynamic libraries** with `ldd`
 - 🧩 **Extensible**: add extra files with `--extras <file>`
 - 🗄️ **Auto-populates `/etc/passwd` and `/etc/group`** as needed
