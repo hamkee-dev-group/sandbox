@@ -328,9 +328,27 @@ int copy_ldd_deps(const char *bin, const char *root)
     return ret;
 }
 
+int has_parent_ref_component(const char *path)
+{
+    const char *p = path;
+
+    while (*p)
+    {
+        while (*p == '/')
+            p++;
+        const char *start = p;
+        while (*p && *p != '/')
+            p++;
+        if (p - start == 2 && start[0] == '.' && start[1] == '.')
+            return 1;
+    }
+    return 0;
+}
+
 int copy_extras(const char *listfile)
 {
     char line[PATH_MAX];
+    char cwd[PATH_MAX] = "";
     FILE *f;
     
     f = fopen(listfile, "r");
@@ -342,11 +360,37 @@ int copy_extras(const char *listfile)
     while (fgets(line, sizeof(line), f))
     {
         line[strcspn(line, "\n")] = 0;
-        if (strlen(line) == 0 || line[0] != '/')
+        if (strlen(line) == 0)
             continue;
+        if (has_parent_ref_component(line))
+        {
+            fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
+            continue;
+        }
+        char src[PATH_MAX];
         char dst[PATH_MAX];
-        snprintf(dst, sizeof(dst), "%s%s", rootfs, line);
-        if (copy_file(line, dst) < 0)
+        int n;
+        if (line[0] == '/')
+        {
+            snprintf(src, sizeof(src), "%s", line);
+            n = snprintf(dst, sizeof(dst), "%s%s", rootfs, line);
+        }
+        else
+        {
+            if (cwd[0] == '\0' && !getcwd(cwd, sizeof(cwd)))
+            {
+                fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
+                continue;
+            }
+            n = snprintf(src, sizeof(src), "%s/%s", cwd, line);
+            if (n < 0 || n >= (int)sizeof(src))
+            {
+                fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
+                continue;
+            }
+            n = snprintf(dst, sizeof(dst), "%s/%s", rootfs, line);
+        }
+        if (n < 0 || n >= (int)sizeof(dst) || copy_file(src, dst) < 0)
         {
             fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
         }
