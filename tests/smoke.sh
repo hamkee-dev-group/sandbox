@@ -79,19 +79,27 @@ printf '#!/bin/sh\nexit 0\n' > "$non_elf"
 chmod +x "$non_elf"
 assert_fails_with "$tmp_root/non-elf-root" "$non_elf is not a binary file" "$non_elf" --prepare-only
 
+truncated_elf=$tmp_root/truncated-elf-target
+printf '\177ELF' > "$truncated_elf"
+chmod +x "$truncated_elf"
+assert_fails_with "$tmp_root/truncated-elf-root" "$truncated_elf is not a valid ELF executable" "$truncated_elf" --prepare-only
+
 rootfs_file=$tmp_root/rootfs-file
 printf 'not a directory\n' > "$rootfs_file"
-assert_fails_containing "$rootfs_file" "rootfs path is not a directory: $rootfs_file" /bin/true --prepare-only
+assert_fails_containing "$rootfs_file" "rootfs '$rootfs_file': not a directory" /bin/true --prepare-only
 
 rootfs_parent_file=$tmp_root/rootfs-parent-file
 printf 'not a directory\n' > "$rootfs_parent_file"
-assert_fails_containing "$rootfs_parent_file/rootfs" "rootfs parent is not a directory: $rootfs_parent_file" /bin/true --prepare-only
+assert_fails_containing "$rootfs_parent_file/rootfs" "rootfs '$rootfs_parent_file/rootfs': parent '$rootfs_parent_file' is not a directory" /bin/true --prepare-only
+
+missing_parent=$tmp_root/missing-parent/rootfs
+assert_fails_containing "$missing_parent" "rootfs '$missing_parent': parent '$tmp_root/missing-parent': No such file or directory" /bin/true --prepare-only
 
 if [ "$(id -u)" -ne 0 ]; then
 	unwritable_parent=$tmp_root/unwritable-parent
 	mkdir "$unwritable_parent"
 	chmod 0555 "$unwritable_parent"
-	assert_fails_containing "$unwritable_parent/rootfs" "rootfs parent is not writable/searchable: $unwritable_parent" /bin/true --prepare-only
+	assert_fails_containing "$unwritable_parent/rootfs" "rootfs '$unwritable_parent/rootfs': parent '$unwritable_parent' is not writable/searchable: Permission denied" /bin/true --prepare-only
 	chmod 0755 "$unwritable_parent"
 else
 	echo "smoke: skipping unwritable rootfs path check (root can bypass directory permissions)"

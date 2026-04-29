@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <elf.h>
 #include <stddef.h>
 #include <libgen.h>
 #include <linux/audit.h>
@@ -155,11 +156,15 @@ int write_uid_gid_map(pid_t child_pid)
     return 0;
 }
 
-int is_binary(const char *path) {
+int is_binary(const char *path, int *invalid_elf) {
     struct stat st;
     int fd;
     ssize_t n;
-    unsigned char magic[4];
+    unsigned char hdr[20];
+    unsigned int e_type;
+    unsigned int e_machine;
+
+    *invalid_elf = 0;
 
     if (access(path, X_OK) != 0) {
         return 0;
@@ -176,12 +181,43 @@ int is_binary(const char *path) {
         return 0;
     }
 
-    n = read(fd, magic, sizeof(magic));
+    n = read(fd, hdr, sizeof(hdr));
     close(fd);
-    if (n != 4 || magic[0] != 0x7f || magic[1] != 'E' || magic[2] != 'L' || magic[3] != 'F') {
+    if (n < SELFMAG || hdr[EI_MAG0] != ELFMAG0 || hdr[EI_MAG1] != ELFMAG1 || hdr[EI_MAG2] != ELFMAG2 || hdr[EI_MAG3] != ELFMAG3) {
+        return 0;
+    }
+    if (n < (ssize_t)sizeof(hdr) ||
+        (hdr[EI_CLASS] != ELFCLASS32 && hdr[EI_CLASS] != ELFCLASS64) ||
+        (hdr[EI_DATA] != ELFDATA2LSB && hdr[EI_DATA] != ELFDATA2MSB) ||
+        hdr[EI_VERSION] != EV_CURRENT) {
+        *invalid_elf = 1;
+        return 0;
+    }
+    if (hdr[EI_DATA] == ELFDATA2LSB) {
+        e_type = (unsigned int)hdr[16] | ((unsigned int)hdr[17] << 8);
+        e_machine = (unsigned int)hdr[18] | ((unsigned int)hdr[19] << 8);
+    } else {
+        e_type = ((unsigned int)hdr[16] << 8) | (unsigned int)hdr[17];
+        e_machine = ((unsigned int)hdr[18] << 8) | (unsigned int)hdr[19];
+    }
+    if ((e_type != ET_EXEC && e_type != ET_DYN) || e_machine == EM_NONE) {
+        *invalid_elf = 1;
         return 0;
     }
     return 1;
+}
+
+int validate_target_binary(const char *path)
+{
+    int invalid_elf;
+
+    if (is_binary(path, &invalid_elf))
+        return 0;
+    if (invalid_elf)
+        fprintf(stderr, "%s is not a valid ELF executable\n", path);
+    else
+        fprintf(stderr, "%s is not a binary file\n", path);
+    return -1;
 }
 
 int mkdir_p(const char *path, mode_t mode)
@@ -308,7 +344,7 @@ int copy_ldd_deps(const char *bin, const char *root)
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
         execlp("ldd", "ldd", bin, (char *)NULL);
-        perror("execlp ldd");
+        fprintf(stderr, "ldd exec failed for %s: %s\n", bin, strerror(errno));
         _exit(127);
     }
 
@@ -348,8 +384,14 @@ int copy_ldd_deps(const char *bin, const char *root)
     fclose(fp);
     int status;
     waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        fprintf(stderr, "ldd failed for %s\n", bin);
+    if (!WIFEXITED(status)) {
+        fprintf(stderr, "ldd discovery failed for %s: ldd did not exit normally\n", bin);
+        ret = -1;
+    } else if (WEXITSTATUS(status) == 127) {
+        fprintf(stderr, "ldd discovery failed for %s: ldd exec failed\n", bin);
+        ret = -1;
+    } else if (WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "ldd discovery failed for %s: ldd exited with status %d\n", bin, WEXITSTATUS(status));
         ret = -1;
     }
     return ret;
@@ -361,24 +403,26 @@ int validate_rootfs_path(const char *path)
     char copy[PATH_MAX];
     char *parent;
     int n;
+    int saved_errno;
 
     if (stat(path, &st) == 0)
     {
         if (!S_ISDIR(st.st_mode))
         {
-            fprintf(stderr, "rootfs path is not a directory: %s\n", path);
+            fprintf(stderr, "rootfs '%s': not a directory\n", path);
             return -1;
         }
         if (access(path, W_OK | X_OK) != 0)
         {
-            fprintf(stderr, "rootfs path is not writable/searchable: %s: %s\n", path, strerror(errno));
+            fprintf(stderr, "rootfs '%s': not writable/searchable: %s\n", path, strerror(errno));
             return -1;
         }
         return 0;
     }
-    if (errno != ENOENT && errno != ENOTDIR)
+    saved_errno = errno;
+    if (saved_errno != ENOENT && saved_errno != ENOTDIR)
     {
-        fprintf(stderr, "rootfs path is not accessible: %s: %s\n", path, strerror(errno));
+        fprintf(stderr, "rootfs '%s': %s\n", path, strerror(saved_errno));
         return -1;
     }
 
@@ -389,25 +433,19 @@ int validate_rootfs_path(const char *path)
         return -1;
     }
     parent = dirname(copy);
-    while (stat(parent, &st) != 0 && errno == ENOENT)
-    {
-        if (strcmp(parent, ".") == 0 || strcmp(parent, "/") == 0)
-            break;
-        parent = dirname(parent);
-    }
     if (stat(parent, &st) != 0)
     {
-        fprintf(stderr, "rootfs parent is not accessible: %s: %s\n", parent, strerror(errno));
+        fprintf(stderr, "rootfs '%s': parent '%s': %s\n", path, parent, strerror(errno));
         return -1;
     }
     if (!S_ISDIR(st.st_mode))
     {
-        fprintf(stderr, "rootfs parent is not a directory: %s\n", parent);
+        fprintf(stderr, "rootfs '%s': parent '%s' is not a directory\n", path, parent);
         return -1;
     }
     if (access(parent, W_OK | X_OK) != 0)
     {
-        fprintf(stderr, "rootfs parent is not writable/searchable: %s: %s\n", parent, strerror(errno));
+        fprintf(stderr, "rootfs '%s': parent '%s' is not writable/searchable: %s\n", path, parent, strerror(errno));
         return -1;
     }
     return 0;
@@ -1030,8 +1068,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "--prepare-only is not compatible with --userns.\n");
         return 1;
     }
-    if (prepare_only && !is_binary(target)) {
-        fprintf(stderr, "%s is not a binary file\n", target);
+    if (prepare_only && validate_target_binary(target) < 0) {
         return 1;
     }
     if (prepare_only && validate_rootfs_path(rootfs) < 0) {
@@ -1059,6 +1096,9 @@ int main(int argc, char **argv)
     }
 
     if (!target) {
+        if (!prepare_only && validate_rootfs_path(rootfs) < 0) {
+            return 1;
+        }
         if (setup_essential_environment(rootfs) < 0) {
             fprintf(stderr, "Failed to set up minimal environment\n");
             return 1;
@@ -1100,8 +1140,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!is_binary(target)) {
-        fprintf(stderr, "%s is not a binary file\n", target);
+    if (validate_target_binary(target) < 0) {
+        return 1;
+    }
+    if (!prepare_only && validate_rootfs_path(rootfs) < 0) {
         return 1;
     }
     if (build_rootfs(target) < 0) {
