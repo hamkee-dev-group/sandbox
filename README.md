@@ -15,7 +15,7 @@
 - 🧱 **Can assemble a target rootfs without running it** (`--prepare-only`)
 - 🐚 **Shell mode includes fixed essential binaries**: `/bin/sh`, `/bin/ls`, `/bin/cat`, `/bin/echo`, `/bin/mkdir`, `/bin/rm`, `/usr/bin/grep`, `/usr/bin/head`, `/usr/bin/tail`, `/usr/bin/wc`, `/usr/bin/stat`, `/usr/bin/ldd`, `/usr/bin/strace`, `/usr/bin/du`
 - 🏗️ **Auto-copies required dynamic libraries** with `ldd`
-- 🧩 **Extensible**: add extra files with `--extras <file>`
+- 🧩 **Extensible**: `--extras <file>` supports absolute files, relative files resolved against the extras list directory, and directory entries marked with a trailing slash
 - 🗄️ **Auto-populates `/etc/passwd` and `/etc/group`** as needed
 - 🧹 **Wipes environment variables** for safety
 - 🪶 **Less than 1000 lines, easy to audit and extend**
@@ -333,11 +333,27 @@ Modes:
     ./sandbox /tmp/mychroot --userns --extras extras.txt
     sudo ./sandbox /tmp/mychroot /usr/bin/curl --extras extras.txt --trace "https://example.com"
     ```
-    - `extras.txt` contains one path per line. Absolute entries are copied from the absolute host path to the same absolute path inside the rootfs (`/host/path` -> `<rootfs>/host/path`). Relative entries are resolved from the caller's current working directory and copied to the same relative path inside the rootfs (`rel/path` -> `<rootfs>/rel/path`). Blank lines are skipped. Entries with a literal `..` path component, such as `..`, `../x`, `a/../x`, or `/tmp/../x`, are rejected; components that merely contain two dots, such as `conf/..data/file` or `/tmp/..cache/foo`, are allowed. For each invalid entry or copy failure (missing source, permission error, etc.), `copy_extras()` prints `[WARN] Failed to copy extra: <path>` to stderr and **continues** to the next entry. The run only aborts if `copy_extras()` itself returns `< 0`, which happens when `fopen(listfile)` fails and `main()` prints `Failed to copy extras` before exiting. In other words: a missing or unreadable **list file** is fatal, but individual list **entries** that are blank, invalid, or whose source cannot be copied are not.
-    - `--extras` **must be immediately followed by the list file**; the parser only accepts it when a filename argument is present (`sandbox.c:768-770`). A bare `--extras` with no filename is not recognized as a flag and is treated as a positional argument instead — e.g. `./sandbox /tmp/sbroot --userns --extras` ends up with `--extras` taken as the target binary and is rejected as `"--extras is not a binary file"`.
-    - **`--extras` gobbles the next argv token verbatim — even another flag.** At `sandbox.c:768-770` the parser matches `--extras` when `i + 1 < argc`, unconditionally sets `extras_idx = i + 1`, and does `++i`; it never checks whether `argv[i+1]` looks like a flag or a path. So if the token that happens to follow `--extras` is another recognized flag (`--user`, `--userns`, `--trace`, or even another `--extras`), that flag is still taken as the extras filename and its intended effect is **not** applied. For example, `sudo ./sandbox /tmp/x --extras --user` stores `"--user"` as the extras path (so `drop_to_nobody` stays `0` — no drop-to-nobody happens) and later fails with `extras file: No such file or directory` / `Failed to copy extras` when `copy_extras("--user")` runs. Likewise, in `sudo ./sandbox /tmp/x /bin/ls --extras --trace /bin/ls` the parser consumes `--trace` as the extras filename, so `trace_mode` stays unset and `/bin/ls` is recorded as the normal (non-trace) target — but the run still aborts before any sandboxed execution, because `copy_extras("--trace")` fails with `extras file: No such file or directory` / `Failed to copy extras` at `sandbox.c:852-854`.
-    - Works with shell-mode runs, normal target-binary runs, and traced target-binary runs. It can be combined with `--user` or `--userns`; there is no `--extras`-specific conflict with either flag.
-    - If `--trace` is also used, `--extras <file>` must appear **before** `--trace`: once `--trace` is seen, the parser stops scanning flags and treats every remaining argument as a target argument for the traced binary.
+    - Lines are read one per `fgets`; trailing newline is stripped; entries with length 0 after strip are skipped silently; entries whose first non-whitespace character is `#` are treated as comments and skipped silently.
+    - ABSOLUTE entry (`line[0] == '/'`): the entry's absolute host path is preserved under the rootfs, i.e. `<rootfs><entry>` (e.g. `/etc/memfdbus/client.conf` -> `<rootfs>/etc/memfdbus/client.conf`).
+    - RELATIVE entry (`line[0] != '/'` and not blank/comment): resolved as `<dir-of-extras-listfile>/<entry>` on the host, and copied to `<rootfs>/<entry>` (i.e. preserving the same relative path under rootfs, e.g. listfile `/work/extras.txt` with line `var/run/iouringd/` -> source `/work/var/run/iouringd/`, dest `<rootfs>/var/run/iouringd/`). The listfile directory is computed once via `dirname()` of a writable copy of the listfile argument before the read loop.
+    - If an entry ends with `/`, it denotes a directory: the destination directory `<rootfs>/<resolved>` is created with mkdir -p semantics (every missing parent created with mode 0755) and no file copy is performed. This is the supported way to materialise socket/IPC parent directories such as iouringd `var/run/iouringd/` or memfdbus `var/run/memfdbus/`.
+    - For file entries (no trailing `/`), the destination's parent directory chain is created with mkdir -p semantics (mode 0755) before invoking `copy_file()`.
+    - Any failure (open of source missing, `copy_file()` failure, mkdir failure other than `EEXIST`) on any entry causes `copy_extras()` to return `-1` after the entry is reported on stderr in the form `extras: failed to copy <src> -> <dst>: <strerror>`; the function still attempts every remaining line so the user sees the full set of failures, but the non-zero return propagates and `main()` exits non-zero (matching the existing `Failed to copy extras` branch).
+    - On success of each entry, `copy_extras()` prints `extras: copied <src> -> <dst>` (file) or `extras: created <dst>` (directory) to stdout so prepare-only output is auditable.
+    - Example 1, extras list at `/work/extras.txt`:
+        ```text
+        /etc/memfdbus/client.conf
+        bin/iouringd-client
+        var/run/iouringd/
+        ```
+        With `<rootfs>` set to `/tmp/mychroot`, `/etc/memfdbus/client.conf` is copied to `/tmp/mychroot/etc/memfdbus/client.conf`; `/work/bin/iouringd-client` is copied to `/tmp/mychroot/bin/iouringd-client`; and `/tmp/mychroot/var/run/iouringd/` is created as a directory for IPC/socket use.
+    - Example 2, extras list at `/srv/app/extras.txt`:
+        ```text
+        /etc/memfdbus/client.conf
+        bin/iouringd-client
+        var/run/memfdbus/
+        ```
+        With `<rootfs>` set to `/tmp/mychroot`, `/etc/memfdbus/client.conf` is copied to `/tmp/mychroot/etc/memfdbus/client.conf`; `/srv/app/bin/iouringd-client` is copied to `/tmp/mychroot/bin/iouringd-client`; and `/tmp/mychroot/var/run/memfdbus/` is created as a directory without requiring that directory to exist on the host.
 
 ---
 
@@ -350,7 +366,7 @@ Modes:
 - In prepare-only mode, `main()` returns immediately after `build_rootfs()` and optional `--extras` processing. It does not enter the runtime setup path, so no namespace clone, chroot, `/proc` mount, seccomp filter, UID/GID drop, capability drop, shell, target execution, or Landlock enforcement occurs.
 - `create_dev_nodes()` prepares `/dev/null`, `/dev/zero`, and `/dev/tty`: in normal runs they are created as character device nodes, while in `--userns` they start as placeholder files that are later bind-mounted to the host devices
 - `create_etc_files()` always creates `<rootfs>/etc/`; it additionally writes `/etc/passwd` and `/etc/group` only when `--user` sets `drop_to_nobody` (the `if(drop_to_nobody)` gate at `sandbox.c:390-410`)
-- Optionally adds files specified in `--extras`, which can copy absolute entries to matching absolute paths under the rootfs and relative entries from the caller's current working directory to matching relative paths under the rootfs. Blank entries are skipped, entries with a literal `..` path component are rejected, and a per-entry validation or `copy_file()` failure prints `[WARN] Failed to copy extra: <path>` and continues rather than aborting the run; only a failure to open the list file itself aborts with `Failed to copy extras`.
+- Optionally adds files specified in `--extras`, which can copy absolute entries to matching absolute paths under the rootfs, copy relative entries from the extras list directory to matching relative paths under the rootfs, and create directory entries marked with a trailing slash. Blank and comment entries are skipped; per-entry failures are reported, all entries are attempted, and any failure makes `copy_extras()` return non-zero so `main()` exits with `Failed to copy extras`.
 - Optionally traces binary with `strace` to discover runtime file dependencies. After the traced child exits, `sandbox` parses the trace log under `<rootfs>/tmp/strace<6chars>`, copies into the rootfs only quoted absolute paths that do not contain `/..`, ignores any `copy_file()` failure during this replay pass, and then attempts to `unlink()` the trace log (the `unlink()` return value is also ignored, so removal is best-effort) (`sandbox.c:902-924`)
 - Optionally switches to UID/GID 65534 (`nobody`)
 - Optionally creates a user namespace with `--userns` for rootless operation: writes `deny` to `/proc/<pid>/setgroups` and maps namespace uid/gid `0` to the invoking caller's real uid/gid (`getuid()`/`getgid()`) via `/proc/<pid>/uid_map` and `/proc/<pid>/gid_map`, so the sandboxed process appears as `root` inside the namespace while retaining the caller's identity on the host. `--userns` cannot be combined with `--user` or `--trace`.

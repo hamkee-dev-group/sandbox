@@ -348,8 +348,24 @@ int has_parent_ref_component(const char *path)
 int copy_extras(const char *listfile)
 {
     char line[PATH_MAX];
-    char cwd[PATH_MAX] = "";
+    char listcopy[PATH_MAX];
+    char listdir[PATH_MAX];
     FILE *f;
+    int ret = 0;
+    int n;
+
+    n = snprintf(listcopy, sizeof(listcopy), "%s", listfile);
+    if (n < 0 || n >= (int)sizeof(listcopy))
+    {
+        fprintf(stderr, "extras file path too long\n");
+        return -1;
+    }
+    n = snprintf(listdir, sizeof(listdir), "%s", dirname(listcopy));
+    if (n < 0 || n >= (int)sizeof(listdir))
+    {
+        fprintf(stderr, "extras file path too long\n");
+        return -1;
+    }
     
     f = fopen(listfile, "r");
     if (!f)
@@ -360,43 +376,81 @@ int copy_extras(const char *listfile)
     while (fgets(line, sizeof(line), f))
     {
         line[strcspn(line, "\n")] = 0;
+        char *p = line;
+        while (*p == ' ' || *p == '\t')
+            p++;
         if (strlen(line) == 0)
             continue;
-        if (has_parent_ref_component(line))
-        {
-            fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
+        if (*p == '#')
             continue;
-        }
+
         char src[PATH_MAX];
         char dst[PATH_MAX];
-        int n;
+        int is_dir = line[strlen(line) - 1] == '/';
         if (line[0] == '/')
         {
-            snprintf(src, sizeof(src), "%s", line);
+            n = snprintf(src, sizeof(src), "%s", line);
+            if (n < 0 || n >= (int)sizeof(src))
+            {
+                fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", line, line, strerror(ENAMETOOLONG));
+                ret = -1;
+                continue;
+            }
             n = snprintf(dst, sizeof(dst), "%s%s", rootfs, line);
         }
         else
         {
-            if (cwd[0] == '\0' && !getcwd(cwd, sizeof(cwd)))
-            {
-                fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
-                continue;
-            }
-            n = snprintf(src, sizeof(src), "%s/%s", cwd, line);
+            n = snprintf(src, sizeof(src), "%s/%s", listdir, line);
             if (n < 0 || n >= (int)sizeof(src))
             {
-                fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
+                fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", line, line, strerror(ENAMETOOLONG));
+                ret = -1;
                 continue;
             }
             n = snprintf(dst, sizeof(dst), "%s/%s", rootfs, line);
         }
-        if (n < 0 || n >= (int)sizeof(dst) || copy_file(src, dst) < 0)
+        if (n < 0 || n >= (int)sizeof(dst))
         {
-            fprintf(stderr, "[WARN] Failed to copy extra: %s\n", line);
+            fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", src, line, strerror(ENAMETOOLONG));
+            ret = -1;
+            continue;
         }
+        if (is_dir)
+        {
+            if (mkdir_p(dst, 0755) < 0)
+            {
+                fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", src, dst, strerror(errno));
+                ret = -1;
+                continue;
+            }
+            printf("extras: created %s\n", dst);
+            continue;
+        }
+
+        char parent[PATH_MAX];
+        n = snprintf(parent, sizeof(parent), "%s", dst);
+        if (n < 0 || n >= (int)sizeof(parent))
+        {
+            fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", src, dst, strerror(ENAMETOOLONG));
+            ret = -1;
+            continue;
+        }
+        if (mkdir_p(dirname(parent), 0755) < 0)
+        {
+            fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", src, dst, strerror(errno));
+            ret = -1;
+            continue;
+        }
+        if (copy_file(src, dst) < 0)
+        {
+            fprintf(stderr, "extras: failed to copy %s -> %s: %s\n", src, dst, strerror(errno));
+            ret = -1;
+            continue;
+        }
+        printf("extras: copied %s -> %s\n", src, dst);
     }
     fclose(f);
-    return 0;
+    return ret;
 }
 
 int create_dev_nodes(const char *root)

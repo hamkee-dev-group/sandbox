@@ -41,7 +41,6 @@ assert_fails_with() {
 
 tmp_root=$(mktemp -d)
 trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
-repo_dir=$(pwd)
 
 assert_fails_with "$tmp_root/no-target" "--prepare-only requires a target binary." --prepare-only
 assert_fails_with --prepare-only "--prepare-only requires a target binary." "$tmp_root/leading-no-target"
@@ -67,57 +66,62 @@ if [ "$(id -u)" -eq 0 ]; then
 	fi
 
 	extras_root=$tmp_root/prepare-extras
-	extras_cwd=$tmp_root/extras-cwd/nested
-	absolute_extra=$tmp_root/host-absolute/file.txt
-	absolute_dotted_extra=$tmp_root/host-absolute/..cache/file.txt
-	abs_parent_dir=$tmp_root/host-parent/src
-	extras_list=$tmp_root/extras.txt
+	extras_src=$tmp_root/extras_src
+	extras_list=$extras_src/extras.txt
 
-	mkdir -p "$extras_cwd/rel" "$extras_cwd/conf/..data" "$extras_cwd/a" "$tmp_root/host-absolute/..cache" "$abs_parent_dir"
-	printf 'relative\n' > "$extras_cwd/rel/file.txt"
-	printf 'relative dotted\n' > "$extras_cwd/conf/..data/file.txt"
-	printf 'absolute\n' > "$absolute_extra"
-	printf 'absolute dotted\n' > "$absolute_dotted_extra"
-	printf 'blocked parent\n' > "$tmp_root/extras-cwd/blocked-parent.txt"
-	printf 'blocked relative\n' > "$extras_cwd/blocked-relative.txt"
-	printf 'blocked absolute\n' > "$tmp_root/host-parent/blocked-absolute.txt"
+	mkdir -p "$extras_src/etc"
+	printf 'payload bytes\n' > "$extras_src/payload.txt"
+	printf 'app config\n' > "$extras_src/etc/app.conf"
 	printf '%s\n' \
-		"$absolute_extra" \
-		"rel/file.txt" \
-		"conf/..data/file.txt" \
-		"$absolute_dotted_extra" \
-		"../blocked-parent.txt" \
-		"a/../blocked-relative.txt" \
-		"$abs_parent_dir/../blocked-absolute.txt" \
+		"/bin/echo" \
+		"payload.txt" \
+		"etc/app.conf" \
+		"var/run/iouringd/" \
 		> "$extras_list"
 
+	./sandbox "$extras_root" /bin/true --prepare-only --extras "$extras_list"
+	if [ ! -x "$extras_root/bin/echo" ]; then
+		echo "smoke: prepare-only extras did not copy absolute executable"
+		exit 1
+	fi
+	if ! cmp -s "$extras_src/payload.txt" "$extras_root/payload.txt"; then
+		echo "smoke: prepare-only extras did not copy relative file"
+		exit 1
+	fi
+	if ! cmp -s "$extras_src/etc/app.conf" "$extras_root/etc/app.conf"; then
+		echo "smoke: prepare-only extras did not copy nested relative file"
+		exit 1
+	fi
+	if [ ! -d "$extras_root/var/run/iouringd" ]; then
+		echo "smoke: prepare-only extras did not create relative directory"
+		exit 1
+	fi
+
+	missing_list=$tmp_root/missing-extras.txt
+	printf 'does-not-exist\n' > "$missing_list"
 	set +e
-	prepare_output=$(cd "$extras_cwd" && "$repo_dir/sandbox" "$extras_root" /bin/false --prepare-only --extras "$extras_list" 2>&1)
+	missing_output=$(./sandbox "$tmp_root/missing-extras-root" /bin/true --prepare-only --extras "$missing_list" 2>&1)
 	status=$?
 	set -e
-	if [ "$status" -ne 0 ]; then
-		echo "smoke: prepare-only extras failed"
-		echo "$prepare_output"
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: prepare-only extras missing source succeeded"
 		exit 1
 	fi
-	if ! printf 'absolute\n' | cmp -s - "${extras_root}${absolute_extra}"; then
-		echo "smoke: prepare-only did not copy absolute extra to deterministic path"
-		exit 1
-	fi
-	if ! printf 'relative\n' | cmp -s - "$extras_root/rel/file.txt"; then
-		echo "smoke: prepare-only did not copy relative extra to deterministic path"
-		exit 1
-	fi
-	if ! printf 'relative dotted\n' | cmp -s - "$extras_root/conf/..data/file.txt"; then
-		echo "smoke: prepare-only rejected valid relative dotted component"
-		exit 1
-	fi
-	if ! printf 'absolute dotted\n' | cmp -s - "${extras_root}${absolute_dotted_extra}"; then
-		echo "smoke: prepare-only rejected valid absolute dotted component"
-		exit 1
-	fi
-	if [ -e "$tmp_root/blocked-parent.txt" ] || [ -e "$extras_root/blocked-relative.txt" ] || [ -e "${extras_root}$tmp_root/host-parent/blocked-absolute.txt" ]; then
-		echo "smoke: prepare-only copied literal parent-reference extra"
+	case $missing_output in
+		*"extras: failed to copy"*) ;;
+		*)
+			echo "smoke: prepare-only extras missing source message mismatch"
+			echo "$missing_output"
+			exit 1
+			;;
+	esac
+
+	comment_root=$tmp_root/comment-extras-root
+	comment_list=$tmp_root/comment-extras.txt
+	printf '# comment\n\n/bin/echo\n' > "$comment_list"
+	./sandbox "$comment_root" /bin/true --prepare-only --extras "$comment_list"
+	if [ ! -x "$comment_root/bin/echo" ]; then
+		echo "smoke: prepare-only extras did not copy valid entry after comment"
 		exit 1
 	fi
 else
