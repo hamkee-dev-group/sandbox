@@ -215,20 +215,39 @@ int copy_file(const char *src, const char *dst)
     in = open(src, O_RDONLY);
 
     if (in < 0)
+    {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to open %s -> %s: %s\n", src, dst, strerror(saved_errno));
+        errno = saved_errno;
         return -1;
+    }
     tmp = strdup(dst);
     if (!tmp)
     {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to copy %s -> %s: %s\n", src, dst, strerror(saved_errno));
         close(in);
+        errno = saved_errno;
         return -1;
     }
-    mkdir_p(dirname(tmp), 0755);
+    if (mkdir_p(dirname(tmp), 0755) < 0)
+    {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to create parent for %s -> %s: %s\n", src, dst, strerror(saved_errno));
+        free(tmp);
+        close(in);
+        errno = saved_errno;
+        return -1;
+    }
     free(tmp);
 
     out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0755);
     if (out < 0)
     {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to create %s -> %s: %s\n", src, dst, strerror(saved_errno));
         close(in);
+        errno = saved_errno;
         return -1;
     }
 
@@ -236,17 +255,25 @@ int copy_file(const char *src, const char *dst)
         ssize_t written = 0;
         while (written < n) {
             ssize_t w = write(out, buf + written, n - written);
-            if (w <= 0) { 
+            if (w <= 0) {
+                int saved_errno = errno;
+                if (w == 0)
+                    saved_errno = EIO;
+                fprintf(stderr, "copy_file: failed to write %s -> %s: %s\n", src, dst, strerror(saved_errno));
                 close(in); 
                 close(out); 
+                errno = saved_errno;
                 return -1; 
             }
             written += w;
         }
     }
     if (n < 0) {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to read %s -> %s: %s\n", src, dst, strerror(saved_errno));
         close(in);
         close(out);
+        errno = saved_errno;
         return -1;
     }
     close(in);
@@ -299,7 +326,7 @@ int copy_ldd_deps(const char *bin, const char *root)
     while (fgets(line, sizeof(line), fp))
     {
         if (strstr(line, "not found")) {
-            fprintf(stderr, "ldd: unresolved dependency: %s", line);
+            fprintf(stderr, "ldd: unresolved dependency for %s: %s", bin, line);
             ret = -1;
             continue;
         }
@@ -313,7 +340,7 @@ int copy_ldd_deps(const char *bin, const char *root)
         char dst[PATH_MAX];
         snprintf(dst, sizeof(dst), "%s%s", root, start);
         if (copy_file(start, dst) < 0) {
-            fprintf(stderr, "Failed to copy dependency: %s\n", start);
+            fprintf(stderr, "Failed to copy dependency for %s: %s -> %s: %s\n", bin, start, dst, strerror(errno));
             ret = -1;
         }
     }
@@ -326,6 +353,64 @@ int copy_ldd_deps(const char *bin, const char *root)
         ret = -1;
     }
     return ret;
+}
+
+int validate_rootfs_path(const char *path)
+{
+    struct stat st;
+    char copy[PATH_MAX];
+    char *parent;
+    int n;
+
+    if (stat(path, &st) == 0)
+    {
+        if (!S_ISDIR(st.st_mode))
+        {
+            fprintf(stderr, "rootfs path is not a directory: %s\n", path);
+            return -1;
+        }
+        if (access(path, W_OK | X_OK) != 0)
+        {
+            fprintf(stderr, "rootfs path is not writable/searchable: %s: %s\n", path, strerror(errno));
+            return -1;
+        }
+        return 0;
+    }
+    if (errno != ENOENT && errno != ENOTDIR)
+    {
+        fprintf(stderr, "rootfs path is not accessible: %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+
+    n = snprintf(copy, sizeof(copy), "%s", path);
+    if (n < 0 || n >= (int)sizeof(copy))
+    {
+        fprintf(stderr, "Rootfs path too long\n");
+        return -1;
+    }
+    parent = dirname(copy);
+    while (stat(parent, &st) != 0 && errno == ENOENT)
+    {
+        if (strcmp(parent, ".") == 0 || strcmp(parent, "/") == 0)
+            break;
+        parent = dirname(parent);
+    }
+    if (stat(parent, &st) != 0)
+    {
+        fprintf(stderr, "rootfs parent is not accessible: %s: %s\n", parent, strerror(errno));
+        return -1;
+    }
+    if (!S_ISDIR(st.st_mode))
+    {
+        fprintf(stderr, "rootfs parent is not a directory: %s\n", parent);
+        return -1;
+    }
+    if (access(parent, W_OK | X_OK) != 0)
+    {
+        fprintf(stderr, "rootfs parent is not writable/searchable: %s: %s\n", parent, strerror(errno));
+        return -1;
+    }
+    return 0;
 }
 
 int has_parent_ref_component(const char *path)
@@ -780,7 +865,7 @@ int build_rootfs(const char *bin)
         snprintf(path, sizeof(path), "%s%s", rootfs, dirs[i]);
         if (mkdir_p(path, 0755) < 0)
         {
-            fprintf(stderr, "mkdir_p failed: %s\n", path);
+            fprintf(stderr, "mkdir_p failed for rootfs path %s: %s\n", path, strerror(errno));
             return -1;
         }
     }
@@ -814,7 +899,7 @@ int build_rootfs(const char *bin)
         if (slash) {
             *slash = '\0';
             if (mkdir_p(abs_dst, 0755) < 0) {
-                fprintf(stderr, "mkdir_p failed: %s\n", abs_dst);
+                fprintf(stderr, "mkdir_p failed for rootfs path %s: %s\n", abs_dst, strerror(errno));
                 return -1;
             }
             *slash = '/';
@@ -857,7 +942,7 @@ int setup_essential_environment(const char *root) {
         char path[PATH_MAX];
         snprintf(path, sizeof(path), "%s%s", root, dirs[i]);
         if (mkdir_p(path, 0755) < 0) {
-            fprintf(stderr, "mkdir_p failed: %s\n", path);
+            fprintf(stderr, "mkdir_p failed for rootfs path %s: %s\n", path, strerror(errno));
             return -1;
         }
     }
@@ -943,6 +1028,13 @@ int main(int argc, char **argv)
     }
     if (prepare_only && userns_mode) {
         fprintf(stderr, "--prepare-only is not compatible with --userns.\n");
+        return 1;
+    }
+    if (prepare_only && !is_binary(target)) {
+        fprintf(stderr, "%s is not a binary file\n", target);
+        return 1;
+    }
+    if (prepare_only && validate_rootfs_path(rootfs) < 0) {
         return 1;
     }
     if (geteuid() != 0 && !userns_mode) {

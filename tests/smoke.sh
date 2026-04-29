@@ -39,6 +39,32 @@ assert_fails_with() {
 	fi
 }
 
+assert_fails_containing() {
+	rootfs=$1
+	shift
+	expected=$1
+	shift
+
+	set +e
+	actual=$(./sandbox "$rootfs" "$@" 2>&1)
+	status=$?
+	set -e
+
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: expected failure for: ./sandbox $rootfs $*"
+		exit 1
+	fi
+	case $actual in
+		*"$expected"*) ;;
+		*)
+			echo "smoke: error output mismatch"
+			echo "expected to contain: $expected"
+			echo "actual:              $actual"
+			exit 1
+			;;
+	esac
+}
+
 tmp_root=$(mktemp -d)
 trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
 
@@ -47,6 +73,29 @@ assert_fails_with --prepare-only "--prepare-only requires a target binary." "$tm
 assert_fails_with "$tmp_root/trace" "--prepare-only is not compatible with --trace." /bin/true --prepare-only --trace
 assert_fails_with "$tmp_root/user" "--prepare-only is not compatible with --user." /bin/true --prepare-only --user
 assert_fails_with "$tmp_root/userns" "--prepare-only is not compatible with --userns." /bin/true --prepare-only --userns
+
+non_elf=$tmp_root/non-elf-target
+printf '#!/bin/sh\nexit 0\n' > "$non_elf"
+chmod +x "$non_elf"
+assert_fails_with "$tmp_root/non-elf-root" "$non_elf is not a binary file" "$non_elf" --prepare-only
+
+rootfs_file=$tmp_root/rootfs-file
+printf 'not a directory\n' > "$rootfs_file"
+assert_fails_containing "$rootfs_file" "rootfs path is not a directory: $rootfs_file" /bin/true --prepare-only
+
+rootfs_parent_file=$tmp_root/rootfs-parent-file
+printf 'not a directory\n' > "$rootfs_parent_file"
+assert_fails_containing "$rootfs_parent_file/rootfs" "rootfs parent is not a directory: $rootfs_parent_file" /bin/true --prepare-only
+
+if [ "$(id -u)" -ne 0 ]; then
+	unwritable_parent=$tmp_root/unwritable-parent
+	mkdir "$unwritable_parent"
+	chmod 0555 "$unwritable_parent"
+	assert_fails_containing "$unwritable_parent/rootfs" "rootfs parent is not writable/searchable: $unwritable_parent" /bin/true --prepare-only
+	chmod 0755 "$unwritable_parent"
+else
+	echo "smoke: skipping unwritable rootfs path check (root can bypass directory permissions)"
+fi
 
 if [ "$(id -u)" -eq 0 ]; then
 	prepare_root=$tmp_root/prepare
