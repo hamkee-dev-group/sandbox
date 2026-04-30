@@ -1157,8 +1157,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "Failed to copy extras\n");
         return 1;
     }
-    if (prepare_only)
+    if (prepare_only) {
+        printf("TARGET /usr/bin/%s\n", target_name);
         return 0;
+    }
 
     if (trace_mode) {
         char tmpfile[] = "/tmp/straceXXXXXX";

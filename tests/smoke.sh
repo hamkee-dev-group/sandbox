@@ -121,30 +121,26 @@ if [ "$(id -u)" -eq 0 ]; then
 		echo "smoke: prepare-only did not copy /bin/sh"
 		exit 1
 	fi
-	case $prepare_output in
-		*"copied /bin/false -> $prepare_root/usr/bin/false"*) ;;
-		*)
-			echo "smoke: prepare-only stdout missing /usr/bin target copy"
-			echo "$prepare_output"
-			exit 1
-			;;
-	esac
-	case $prepare_output in
-		*"copied /bin/false -> $prepare_root/bin/false"*) ;;
-		*)
-			echo "smoke: prepare-only stdout missing absolute target mirror copy"
-			echo "$prepare_output"
-			exit 1
-			;;
-	esac
-	case $prepare_output in
-		*"copied /bin/sh -> $prepare_root/bin/sh"*) ;;
-		*)
-			echo "smoke: prepare-only stdout missing /bin/sh copy"
-			echo "$prepare_output"
-			exit 1
-			;;
-	esac
+	if ! printf '%s\n' "$prepare_output" | grep -F "copied /bin/false -> $prepare_root/usr/bin/false" >/dev/null; then
+		echo "smoke: prepare-only stdout missing /usr/bin target copy"
+		echo "$prepare_output"
+		exit 1
+	fi
+	if ! printf '%s\n' "$prepare_output" | grep -F "copied /bin/false -> $prepare_root/bin/false" >/dev/null; then
+		echo "smoke: prepare-only stdout missing absolute target mirror copy"
+		echo "$prepare_output"
+		exit 1
+	fi
+	if ! printf '%s\n' "$prepare_output" | grep -F "copied /bin/sh -> $prepare_root/bin/sh" >/dev/null; then
+		echo "smoke: prepare-only stdout missing /bin/sh copy"
+		echo "$prepare_output"
+		exit 1
+	fi
+	if ! printf '%s\n' "$prepare_output" | grep -F "TARGET /usr/bin/false" >/dev/null; then
+		echo "smoke: prepare-only stdout missing target record"
+		echo "$prepare_output"
+		exit 1
+	fi
 
 	extras_root=$tmp_root/prepare-extras
 	extras_src=$tmp_root/extras_src
