@@ -107,7 +107,7 @@ fi
 
 if [ "$(id -u)" -eq 0 ]; then
 	prepare_root=$tmp_root/prepare
-	./sandbox "$prepare_root" /bin/false --prepare-only
+	prepare_output=$(./sandbox "$prepare_root" /bin/false --prepare-only)
 
 	if [ ! -x "$prepare_root/usr/bin/false" ]; then
 		echo "smoke: prepare-only did not copy target to /usr/bin"
@@ -121,6 +121,30 @@ if [ "$(id -u)" -eq 0 ]; then
 		echo "smoke: prepare-only did not copy /bin/sh"
 		exit 1
 	fi
+	case $prepare_output in
+		*"copied /bin/false -> $prepare_root/usr/bin/false"*) ;;
+		*)
+			echo "smoke: prepare-only stdout missing /usr/bin target copy"
+			echo "$prepare_output"
+			exit 1
+			;;
+	esac
+	case $prepare_output in
+		*"copied /bin/false -> $prepare_root/bin/false"*) ;;
+		*)
+			echo "smoke: prepare-only stdout missing absolute target mirror copy"
+			echo "$prepare_output"
+			exit 1
+			;;
+	esac
+	case $prepare_output in
+		*"copied /bin/sh -> $prepare_root/bin/sh"*) ;;
+		*)
+			echo "smoke: prepare-only stdout missing /bin/sh copy"
+			echo "$prepare_output"
+			exit 1
+			;;
+	esac
 
 	extras_root=$tmp_root/prepare-extras
 	extras_src=$tmp_root/extras_src
@@ -136,7 +160,7 @@ if [ "$(id -u)" -eq 0 ]; then
 		"var/run/iouringd/" \
 		> "$extras_list"
 
-	./sandbox "$extras_root" /bin/true --prepare-only --extras "$extras_list"
+	extras_output=$(./sandbox "$extras_root" /bin/true --prepare-only --extras "$extras_list")
 	if [ ! -x "$extras_root/bin/echo" ]; then
 		echo "smoke: prepare-only extras did not copy absolute executable"
 		exit 1
@@ -153,6 +177,29 @@ if [ "$(id -u)" -eq 0 ]; then
 		echo "smoke: prepare-only extras did not create relative directory"
 		exit 1
 	fi
+	case $extras_output in
+		*"copied /bin/echo -> $extras_root/bin/echo"*) ;;
+		*)
+			echo "smoke: prepare-only stdout missing absolute extra copy"
+			echo "$extras_output"
+			exit 1
+			;;
+	esac
+	case $extras_output in
+		*"copied $extras_src/payload.txt -> $extras_root/payload.txt"*) ;;
+		*)
+			echo "smoke: prepare-only stdout missing relative extra copy"
+			echo "$extras_output"
+			exit 1
+			;;
+	esac
+	case $extras_output in
+		*"extras: copied"*)
+			echo "smoke: prepare-only stdout duplicated extra file copy"
+			echo "$extras_output"
+			exit 1
+			;;
+	esac
 
 	missing_list=$tmp_root/missing-extras.txt
 	printf 'does-not-exist\n' > "$missing_list"

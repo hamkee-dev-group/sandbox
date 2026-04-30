@@ -314,6 +314,8 @@ int copy_file(const char *src, const char *dst)
     }
     close(in);
     close(out);
+    if (prepare_only)
+        printf("copied %s -> %s\n", src, dst);
     return 0;
 }
 
@@ -570,7 +572,8 @@ int copy_extras(const char *listfile)
             ret = -1;
             continue;
         }
-        printf("extras: copied %s -> %s\n", src, dst);
+        if (!prepare_only)
+            printf("extras: copied %s -> %s\n", src, dst);
     }
     fclose(f);
     return ret;
