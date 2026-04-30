@@ -148,7 +148,7 @@ The `test` target runs `tests/smoke.sh`, which performs these checks:
   ```
 - Verifies that `./sandbox` exists and is executable (`-x`).
 - Verifies targeted `--prepare-only` parser failures for missing target, `--trace`, `--user`, and `--userns`.
-- When run as root, verifies successful `--prepare-only` rootfs assembly with `/bin/false` and confirms the target was copied rather than executed. When run without root, this assembly check is skipped because the current target rootfs path creates device nodes.
+- When run as root, verifies successful `--prepare-only` rootfs assembly with `/bin/false`, confirms a prepare-only `/bin/echo` target was copied rather than executed, and checks the prepared root can execute the copied `/usr/bin/<basename>` path via `chroot`. When run without root, this assembly check is skipped because the current target rootfs path creates device nodes.
 
 This is still a smoke test suite — there are no unit tests, no CI, and no coverage of runtime sandboxing behavior.
 

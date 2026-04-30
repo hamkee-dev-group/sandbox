@@ -142,6 +142,40 @@ if [ "$(id -u)" -eq 0 ]; then
 		exit 1
 	fi
 
+	exec_root=$tmp_root/prepare-exec
+	exec_marker=prepare-only-target-executed
+	set +e
+	exec_output=$(./sandbox "$exec_root" /bin/echo --prepare-only "$exec_marker" 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -ne 0 ]; then
+		echo "smoke: prepare-only /bin/echo failed"
+		echo "$exec_output"
+		exit 1
+	fi
+	case $exec_output in
+		*"[sandbox exited"*)
+			echo "smoke: prepare-only entered runtime"
+			echo "$exec_output"
+			exit 1
+			;;
+	esac
+	case $exec_output in
+		*"$exec_marker"*)
+			echo "smoke: prepare-only executed target"
+			echo "$exec_output"
+			exit 1
+			;;
+	esac
+	if [ ! -x "$exec_root/usr/bin/echo" ]; then
+		echo "smoke: prepare-only did not copy echo target to /usr/bin"
+		exit 1
+	fi
+	if [ "$(chroot "$exec_root" /usr/bin/echo "$exec_marker")" != "$exec_marker" ]; then
+		echo "smoke: prepared root did not execute /usr/bin/echo"
+		exit 1
+	fi
+
 	extras_root=$tmp_root/prepare-extras
 	extras_src=$tmp_root/extras_src
 	extras_list=$extras_src/extras.txt
