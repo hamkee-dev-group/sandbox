@@ -142,6 +142,30 @@ if [ "$(id -u)" -eq 0 ]; then
 		exit 1
 	fi
 
+	runproof_root=$tmp_root/runproof
+	set +e
+	runproof_output=$(./sandbox "$runproof_root" /bin/true --prepare-only 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -ne 0 ]; then
+		echo "smoke: prepare-only /bin/true failed"
+		echo "$runproof_output"
+		exit 1
+	fi
+	if [ ! -x "$runproof_root/usr/bin/true" ]; then
+		echo "smoke: prepare-only did not copy true target to /usr/bin"
+		exit 1
+	fi
+	set +e
+	runproof_chroot_output=$(chroot "$runproof_root" /usr/bin/true 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -ne 0 ]; then
+		echo "smoke: chroot run of /usr/bin/true from prepared root failed"
+		echo "$runproof_chroot_output"
+		exit 1
+	fi
+
 	exec_root=$tmp_root/prepare-exec
 	exec_marker=prepare-only-target-executed
 	set +e
