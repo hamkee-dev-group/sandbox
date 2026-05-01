@@ -101,8 +101,53 @@ if [ "$(id -u)" -ne 0 ]; then
 	chmod 0555 "$unwritable_parent"
 	assert_fails_containing "$unwritable_parent/rootfs" "rootfs '$unwritable_parent/rootfs': parent '$unwritable_parent' is not writable/searchable: Permission denied" /bin/true --prepare-only
 	chmod 0755 "$unwritable_parent"
+
+	traversal_root=$tmp_root/userns-traversal-root
+	traversal_src=$tmp_root/traversal-src
+	traversal_list=$traversal_src/extras.txt
+	traversal_outside=$tmp_root/outside.txt
+	traversal_abs_dir=$tmp_root/absolute-traversal
+	traversal_abs="$traversal_abs_dir/foo/../escape"
+
+	mkdir -p "$traversal_src" "$traversal_abs_dir"
+	printf 'sentinel\n' > "$traversal_outside"
+	printf 'absolute\n' > "$traversal_abs_dir/escape"
+	printf '%s\n' \
+		'../outside.txt' \
+		"$traversal_abs" \
+		> "$traversal_list"
+
+	set +e
+	traversal_output=$(./sandbox "$traversal_root" /bin/true --userns --extras "$traversal_list" 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: userns extras path traversal succeeded"
+		exit 1
+	fi
+	case $traversal_output in
+		*"../outside.txt"*) ;;
+		*)
+			echo "smoke: userns extras traversal stderr missing relative entry"
+			echo "$traversal_output"
+			exit 1
+			;;
+	esac
+	case $traversal_output in
+		*"$traversal_abs"*) ;;
+		*)
+			echo "smoke: userns extras traversal stderr missing absolute entry"
+			echo "$traversal_output"
+			exit 1
+			;;
+	esac
+	if ! grep -qxF sentinel "$traversal_outside"; then
+		echo "smoke: userns extras traversal overwrote file outside rootfs"
+		exit 1
+	fi
 else
 	echo "smoke: skipping unwritable rootfs path check (root can bypass directory permissions)"
+	echo "smoke: skipping userns extras traversal check (requires non-root)"
 fi
 
 if [ "$(id -u)" -eq 0 ]; then

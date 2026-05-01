@@ -508,6 +508,11 @@ int copy_extras(const char *listfile)
             continue;
         if (*p == '#')
             continue;
+        if (has_parent_ref_component(line)) {
+            fprintf(stderr, "extras: rejected path traversal entry %s\n", line);
+            ret = -1;
+            continue;
+        }
 
         char src[PATH_MAX];
         char dst[PATH_MAX];
