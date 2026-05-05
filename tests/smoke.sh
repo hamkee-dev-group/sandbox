@@ -65,6 +65,21 @@ assert_fails_containing() {
 	esac
 }
 
+make_long_dir() {
+	base=$1
+	min_len=$2
+	path=$base
+	i=0
+
+	mkdir -p "$path"
+	while [ "${#path}" -lt "$min_len" ]; do
+		i=$((i + 1))
+		path=$path/segment$i
+		mkdir "$path"
+	done
+	printf '%s\n' "$path"
+}
+
 tmp_root=$(mktemp -d)
 trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
 
@@ -149,6 +164,13 @@ else
 	echo "smoke: skipping unwritable rootfs path check (root can bypass directory permissions)"
 	echo "smoke: skipping userns extras traversal check (requires non-root)"
 fi
+
+long_target_dir=$(make_long_dir "$tmp_root/long-target" 128)
+long_target=$long_target_dir/true
+cp /bin/true "$long_target"
+long_root_parent=$(make_long_dir "$tmp_root/long-root" 945)
+long_root=$long_root_parent/rootfs
+assert_fails_containing "$long_root" "path too long: $long_root$long_target" "$long_target" --userns
 
 if [ "$(id -u)" -eq 0 ]; then
 	prepare_root=$tmp_root/prepare

@@ -70,6 +70,42 @@ const char *essential_bins[] = {
     NULL
 };
 
+static int checked_path_copy(char *out, size_t out_sz, const char *path)
+{
+    int n = snprintf(out, out_sz, "%s", path);
+
+    if (n < 0 || n >= (int)out_sz) {
+        errno = ENAMETOOLONG;
+        fprintf(stderr, "path too long: %s\n", path);
+        return -1;
+    }
+    return 0;
+}
+
+static int checked_path_join(char *out, size_t out_sz, const char *a, const char *b)
+{
+    int n = snprintf(out, out_sz, "%s%s", a, b);
+
+    if (n < 0 || n >= (int)out_sz) {
+        errno = ENAMETOOLONG;
+        fprintf(stderr, "path too long: %s%s\n", a, b);
+        return -1;
+    }
+    return 0;
+}
+
+static int checked_path_join3(char *out, size_t out_sz, const char *a, const char *b, const char *c)
+{
+    int n = snprintf(out, out_sz, "%s%s%s", a, b, c);
+
+    if (n < 0 || n >= (int)out_sz) {
+        errno = ENAMETOOLONG;
+        fprintf(stderr, "path too long: %s%s%s\n", a, b, c);
+        return -1;
+    }
+    return 0;
+}
+
 int build_usr_bin_target_path(char *dst, size_t dst_size, const char *name) {
     int n;
 
@@ -125,8 +161,14 @@ int write_uid_gid_map(pid_t child_pid)
     FILE *fp;
     uid_t uid = getuid();
     gid_t gid = getgid();
+    int n;
 
-    snprintf(path, sizeof(path), "/proc/%d/setgroups", child_pid);
+    n = snprintf(path, sizeof(path), "/proc/%d/setgroups", child_pid);
+    if (n < 0 || n >= (int)sizeof(path)) {
+        errno = ENAMETOOLONG;
+        fprintf(stderr, "path too long: /proc/%d/setgroups\n", child_pid);
+        return -1;
+    }
     fp = fopen(path, "w");
     if (!fp) {
         perror("open setgroups");
@@ -135,7 +177,12 @@ int write_uid_gid_map(pid_t child_pid)
     fprintf(fp, "deny");
     fclose(fp);
 
-    snprintf(path, sizeof(path), "/proc/%d/uid_map", child_pid);
+    n = snprintf(path, sizeof(path), "/proc/%d/uid_map", child_pid);
+    if (n < 0 || n >= (int)sizeof(path)) {
+        errno = ENAMETOOLONG;
+        fprintf(stderr, "path too long: /proc/%d/uid_map\n", child_pid);
+        return -1;
+    }
     fp = fopen(path, "w");
     if (!fp) {
         perror("open uid_map");
@@ -144,7 +191,12 @@ int write_uid_gid_map(pid_t child_pid)
     fprintf(fp, "0 %d 1\n", uid);
     fclose(fp);
 
-    snprintf(path, sizeof(path), "/proc/%d/gid_map", child_pid);
+    n = snprintf(path, sizeof(path), "/proc/%d/gid_map", child_pid);
+    if (n < 0 || n >= (int)sizeof(path)) {
+        errno = ENAMETOOLONG;
+        fprintf(stderr, "path too long: /proc/%d/gid_map\n", child_pid);
+        return -1;
+    }
     fp = fopen(path, "w");
     if (!fp) {
         perror("open gid_map");
@@ -223,7 +275,8 @@ int validate_target_binary(const char *path)
 int mkdir_p(const char *path, mode_t mode)
 {
     char tmp[PATH_MAX];
-    snprintf(tmp, sizeof(tmp), "%s", path);
+    if (checked_path_copy(tmp, sizeof(tmp), path) < 0)
+        return -1;
 
     for (char *p = tmp + 1; *p; ++p)
     {
@@ -376,7 +429,10 @@ int copy_ldd_deps(const char *bin, const char *root)
             *end = '\0';
 
         char dst[PATH_MAX];
-        snprintf(dst, sizeof(dst), "%s%s", root, start);
+        if (checked_path_join(dst, sizeof(dst), root, start) < 0) {
+            ret = -1;
+            continue;
+        }
         if (copy_file(start, dst) < 0) {
             fprintf(stderr, "Failed to copy dependency for %s: %s -> %s: %s\n", bin, start, dst, strerror(errno));
             ret = -1;
@@ -599,7 +655,8 @@ int create_dev_nodes(const char *root)
         {"tty", 5, 0},
         {NULL, 0, 0}};
 
-    snprintf(path, sizeof(path), "%s/dev", root);
+    if (checked_path_join(path, sizeof(path), root, "/dev") < 0)
+        return -1;
     if (mkdir(path, 0755) < 0 && errno != EEXIST)
     {
         perror("mkdir /dev");
@@ -608,7 +665,8 @@ int create_dev_nodes(const char *root)
 
     for (int i = 0; devs[i].name; ++i)
     {
-        snprintf(path, sizeof(path), "%s/dev/%s", root, devs[i].name);
+        if (checked_path_join3(path, sizeof(path), root, "/dev/", devs[i].name) < 0)
+            return -1;
         if (userns_mode) {
             int fd = open(path, O_WRONLY | O_CREAT, 0666);
             if (fd < 0 && errno != EEXIST) {
@@ -630,7 +688,8 @@ int create_etc_files(const char *root)
 {
     char path[PATH_MAX];
     FILE *fp;
-    snprintf(path, sizeof(path), "%s/etc", root);
+    if (checked_path_join(path, sizeof(path), root, "/etc") < 0)
+        return -1;
     if (mkdir(path, 0755) < 0 && errno != EEXIST)
     {
         perror("mkdir /etc");
@@ -638,7 +697,8 @@ int create_etc_files(const char *root)
     }
     if(drop_to_nobody) {
         memset(path, 0, PATH_MAX);
-        snprintf(path, sizeof(path), "%s/etc/passwd", root);
+        if (checked_path_join(path, sizeof(path), root, "/etc/passwd") < 0)
+            return -1;
         fp = fopen(path, "w+");
         if(!fp) {
             perror("fopen passwd");
@@ -648,7 +708,8 @@ int create_etc_files(const char *root)
         fclose(fp);
         
         memset(path, 0, PATH_MAX);
-        snprintf(path, sizeof(path), "%s/etc/group", root);
+        if (checked_path_join(path, sizeof(path), root, "/etc/group") < 0)
+            return -1;
         fp = fopen(path, "w+");
         if(!fp) {
             perror("fopen group");
@@ -685,14 +746,17 @@ int setup_sandbox_environment(void)
         perror("mount MS_PRIVATE");
         return -1;
     }
-    snprintf(proc_path, sizeof(proc_path), "%s/proc", rootfs);
+    if (checked_path_join(proc_path, sizeof(proc_path), rootfs, "/proc") < 0)
+        return -1;
     mkdir(proc_path, 0755);
     if (userns_mode) {
         const char *dev_names[] = {"null", "zero", "tty", NULL};
         for (int i = 0; dev_names[i]; i++) {
             char src[PATH_MAX], mnt[PATH_MAX];
-            snprintf(src, sizeof(src), "/dev/%s", dev_names[i]);
-            snprintf(mnt, sizeof(mnt), "%s/dev/%s", rootfs, dev_names[i]);
+            if (checked_path_join(src, sizeof(src), "/dev/", dev_names[i]) < 0)
+                return -1;
+            if (checked_path_join3(mnt, sizeof(mnt), rootfs, "/dev/", dev_names[i]) < 0)
+                return -1;
             if (mount(src, mnt, NULL, MS_BIND, NULL) < 0) {
                 fprintf(stderr, "bind mount %s: %s\n", src, strerror(errno));
                 return -1;
@@ -908,7 +972,8 @@ int build_rootfs(const char *bin)
     for (int i = 0; dirs[i]; ++i)
     {
         char path[PATH_MAX];
-        snprintf(path, sizeof(path), "%s%s", rootfs, dirs[i]);
+        if (checked_path_join(path, sizeof(path), rootfs, dirs[i]) < 0)
+            return -1;
         if (mkdir_p(path, 0755) < 0)
         {
             fprintf(stderr, "mkdir_p failed for rootfs path %s: %s\n", path, strerror(errno));
@@ -920,7 +985,8 @@ int build_rootfs(const char *bin)
         fprintf(stderr, "Target basename too long\n");
         return -1;
     }
-    snprintf(target_name, sizeof(target_name), "%s", base);
+    if (checked_path_copy(target_name, sizeof(target_name), base) < 0)
+        return -1;
 
     if (build_usr_bin_target_path(target_path, sizeof(target_path), target_name) < 0)
         return -1;
@@ -940,7 +1006,8 @@ int build_rootfs(const char *bin)
     }
     if (bin[0] == '/' && strcmp(dst + strlen(rootfs), bin) != 0) {
         char abs_dst[PATH_MAX];
-        snprintf(abs_dst, sizeof(abs_dst), "%s%s", rootfs, bin);
+        if (checked_path_join(abs_dst, sizeof(abs_dst), rootfs, bin) < 0)
+            return -1;
         char *slash = strrchr(abs_dst, '/');
         if (slash) {
             *slash = '\0';
@@ -955,7 +1022,8 @@ int build_rootfs(const char *bin)
             return -1;
         }
     }
-    snprintf(dst, sizeof(dst), "%s/bin/sh", rootfs);
+    if (checked_path_join(dst, sizeof(dst), rootfs, "/bin/sh") < 0)
+        return -1;
     if (copy_file("/bin/sh", dst) < 0)
     {
         fprintf(stderr, "Failed to copy /bin/sh\n");
@@ -965,7 +1033,8 @@ int build_rootfs(const char *bin)
         return -1;
     if (copy_ldd_deps("/bin/sh", rootfs) < 0)
         return -1;
-    snprintf(dst, sizeof(dst), "%s/usr/bin/strace", rootfs);
+    if (checked_path_join(dst, sizeof(dst), rootfs, "/usr/bin/strace") < 0)
+        return -1;
     if (copy_file("/usr/bin/strace", dst) < 0)
     {
         if (trace_mode) {
@@ -986,7 +1055,8 @@ int setup_essential_environment(const char *root) {
 
     for (int i = 0; dirs[i]; ++i) {
         char path[PATH_MAX];
-        snprintf(path, sizeof(path), "%s%s", root, dirs[i]);
+        if (checked_path_join(path, sizeof(path), root, dirs[i]) < 0)
+            return -1;
         if (mkdir_p(path, 0755) < 0) {
             fprintf(stderr, "mkdir_p failed for rootfs path %s: %s\n", path, strerror(errno));
             return -1;
@@ -994,7 +1064,8 @@ int setup_essential_environment(const char *root) {
     }
 
     for (int i = 0; essential_bins[i]; ++i) {
-        snprintf(dst, sizeof(dst), "%s%s", root, essential_bins[i]);
+        if (checked_path_join(dst, sizeof(dst), root, essential_bins[i]) < 0)
+            return -1;
         if (copy_file(essential_bins[i], dst) < 0) {
             fprintf(stderr, "Failed to copy essential bin: %s\n", essential_bins[i]);
             return -1;
@@ -1182,10 +1253,12 @@ int main(int argc, char **argv)
             return -1;
         }
         static char trace_target[PATH_MAX];
-        if (target[0] == '/')
-            snprintf(trace_target, sizeof(trace_target), "%s", target);
-        else if (build_usr_bin_target_path(trace_target, sizeof(trace_target), target_name) < 0)
+        if (target[0] == '/') {
+            if (checked_path_copy(trace_target, sizeof(trace_target), target) < 0)
+                return 1;
+        } else if (build_usr_bin_target_path(trace_target, sizeof(trace_target), target_name) < 0) {
             return 1;
+        }
         trace_argv[0] = "/usr/bin/strace";
         trace_argv[1] = "-f";
         trace_argv[2] = "-e";
@@ -1210,7 +1283,8 @@ int main(int argc, char **argv)
         else if (WIFSIGNALED(status))
             fprintf(stderr, "[sandbox --trace killed by signal %d]\n", WTERMSIG(status));
         char strace_path[PATH_MAX];
-        snprintf(strace_path, sizeof(strace_path), "%s/%s", rootfs, tmpfile);
+        if (checked_path_join3(strace_path, sizeof(strace_path), rootfs, "/", tmpfile) < 0)
+            return 1;
 
         FILE *fp = fopen(strace_path, "r");
         if (!fp) {
@@ -1230,7 +1304,8 @@ int main(int argc, char **argv)
             if (path[0] != '/' || strstr(path, "/.."))
                 continue;
             char dst[PATH_MAX];
-            snprintf(dst, sizeof(dst), "%s%s", rootfs, path);
+            if (checked_path_join(dst, sizeof(dst), rootfs, path) < 0)
+                continue;
             copy_file(path, dst);
         }
         fclose(fp);
