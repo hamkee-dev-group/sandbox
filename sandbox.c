@@ -674,10 +674,29 @@ int create_dev_nodes(const char *root)
                 return -1;
             }
             if (fd >= 0) close(fd);
-        } else if (mknod(path, S_IFCHR | 0666, makedev(devs[i].major, devs[i].minor)) < 0 && errno != EEXIST)
-        {
-            perror(devs[i].name);
-            return -1;
+        } else {
+            if (mknod(path, S_IFCHR | 0666, makedev(devs[i].major, devs[i].minor)) < 0) {
+                if (errno != EEXIST)
+                {
+                    perror(devs[i].name);
+                    return -1;
+                }
+
+                struct stat st;
+                if (lstat(path, &st) < 0)
+                {
+                    perror(devs[i].name);
+                    return -1;
+                }
+                if (!S_ISCHR(st.st_mode) ||
+                    major(st.st_rdev) != (unsigned int)devs[i].major ||
+                    minor(st.st_rdev) != (unsigned int)devs[i].minor)
+                {
+                    fprintf(stderr, "%s exists but is not character device %d:%d\n",
+                            path, devs[i].major, devs[i].minor);
+                    return -1;
+                }
+            }
         }
     }
 

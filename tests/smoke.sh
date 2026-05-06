@@ -209,6 +209,11 @@ if [ "$(id -u)" -eq 0 ]; then
 		exit 1
 	fi
 
+	bad_dev_root=$tmp_root/prepare-bad-dev
+	mkdir -p "$bad_dev_root/dev"
+	printf 'not a device\n' > "$bad_dev_root/dev/null"
+	assert_fails_containing "$bad_dev_root" "$bad_dev_root/dev/null exists but is not character device 1:3" /bin/true --prepare-only
+
 	runproof_root=$tmp_root/runproof
 	set +e
 	runproof_output=$(./sandbox "$runproof_root" /bin/true --prepare-only 2>&1)
