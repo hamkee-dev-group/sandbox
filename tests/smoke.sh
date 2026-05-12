@@ -238,6 +238,35 @@ if [ "$(id -u)" -eq 0 ]; then
 		exit 1
 	fi
 
+	if [ -x /usr/bin/strace ]; then
+		trace_replay_root=$tmp_root/trace-replay
+		trace_host_only=$tmp_root/trace-host-only
+		printf 'host only\n' > "$trace_host_only"
+		set +e
+		trace_replay_output=$(./sandbox "$trace_replay_root" /bin/cat --trace "$trace_host_only" 2>&1)
+		status=$?
+		set -e
+		if [ "$status" -ne 1 ]; then
+			echo "smoke: trace replay cat returned unexpected status $status"
+			echo "$trace_replay_output"
+			exit 1
+		fi
+		case $trace_replay_output in
+			*"[sandbox --trace exited with 1]"*) ;;
+			*)
+				echo "smoke: trace replay did not run traced command"
+				echo "$trace_replay_output"
+				exit 1
+				;;
+		esac
+		if [ -e "$trace_replay_root$trace_host_only" ]; then
+			echo "smoke: trace replay copied failed strace path"
+			exit 1
+		fi
+	else
+		echo "smoke: skipping trace replay check (/usr/bin/strace missing)"
+	fi
+
 	exec_root=$tmp_root/prepare-exec
 	exec_marker=prepare-only-target-executed
 	set +e

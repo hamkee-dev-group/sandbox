@@ -924,6 +924,25 @@ int install_seccomp_filter(void)
 
 static char *trace_argv[64];
 
+static int strace_line_failed(const char *line)
+{
+    const char *p = strrchr(line, '=');
+
+    if (!p)
+        return 0;
+    p++;
+    while (*p == ' ' || *p == '\t')
+        p++;
+    if (*p != '-')
+        return 0;
+    p++;
+    if (*p < '0' || *p > '9')
+        return 0;
+    while (*p >= '0' && *p <= '9')
+        p++;
+    return *p == '\0' || *p == '\n' || *p == ' ' || *p == '\t';
+}
+
 int trace_main(void *arg)
 {
     (void)arg;
@@ -1312,6 +1331,8 @@ int main(int argc, char **argv)
         }
         char line[PATH_MAX];
         while (fgets(line, sizeof(line), fp)) {
+            if (strace_line_failed(line))
+                continue;
             char *quote1 = strchr(line, '"');
             if (!quote1)
                 continue;
