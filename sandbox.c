@@ -275,6 +275,7 @@ int validate_target_binary(const char *path)
 int mkdir_p(const char *path, mode_t mode)
 {
     char tmp[PATH_MAX];
+    struct stat st;
     if (checked_path_copy(tmp, sizeof(tmp), path) < 0)
         return -1;
 
@@ -283,13 +284,31 @@ int mkdir_p(const char *path, mode_t mode)
         if (*p == '/')
         {
             *p = '\0';
-            if (mkdir(tmp, mode) < 0 && errno != EEXIST)
-                return -1;
+            if (mkdir(tmp, mode) < 0)
+            {
+                if (errno != EEXIST)
+                    return -1;
+                if (lstat(tmp, &st) < 0)
+                    return -1;
+                if (!S_ISDIR(st.st_mode)) {
+                    errno = ENOTDIR;
+                    return -1;
+                }
+            }
             *p = '/';
         }
     }
-    if (mkdir(tmp, mode) < 0 && errno != EEXIST)
-        return -1;
+    if (mkdir(tmp, mode) < 0)
+    {
+        if (errno != EEXIST)
+            return -1;
+        if (lstat(tmp, &st) < 0)
+            return -1;
+        if (!S_ISDIR(st.st_mode)) {
+            errno = ENOTDIR;
+            return -1;
+        }
+    }
 
     return 0;
 }
@@ -330,7 +349,7 @@ int copy_file(const char *src, const char *dst)
     }
     free(tmp);
 
-    out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    out = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0755);
     if (out < 0)
     {
         int saved_errno = errno;
@@ -657,7 +676,7 @@ int create_dev_nodes(const char *root)
 
     if (checked_path_join(path, sizeof(path), root, "/dev") < 0)
         return -1;
-    if (mkdir(path, 0755) < 0 && errno != EEXIST)
+    if (mkdir_p(path, 0755) < 0)
     {
         perror("mkdir /dev");
         return -1;
@@ -668,12 +687,23 @@ int create_dev_nodes(const char *root)
         if (checked_path_join3(path, sizeof(path), root, "/dev/", devs[i].name) < 0)
             return -1;
         if (userns_mode) {
-            int fd = open(path, O_WRONLY | O_CREAT, 0666);
+            int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0666);
             if (fd < 0 && errno != EEXIST) {
                 perror(devs[i].name);
                 return -1;
             }
             if (fd >= 0) close(fd);
+            if (fd < 0) {
+                struct stat st;
+                if (lstat(path, &st) < 0) {
+                    perror(devs[i].name);
+                    return -1;
+                }
+                if (!S_ISREG(st.st_mode)) {
+                    fprintf(stderr, "%s exists but is not a regular file\n", path);
+                    return -1;
+                }
+            }
         } else {
             if (mknod(path, S_IFCHR | 0666, makedev(devs[i].major, devs[i].minor)) < 0) {
                 if (errno != EEXIST)
@@ -709,7 +739,7 @@ int create_etc_files(const char *root)
     FILE *fp;
     if (checked_path_join(path, sizeof(path), root, "/etc") < 0)
         return -1;
-    if (mkdir(path, 0755) < 0 && errno != EEXIST)
+    if (mkdir_p(path, 0755) < 0)
     {
         perror("mkdir /etc");
         return -1;
@@ -718,9 +748,15 @@ int create_etc_files(const char *root)
         memset(path, 0, PATH_MAX);
         if (checked_path_join(path, sizeof(path), root, "/etc/passwd") < 0)
             return -1;
-        fp = fopen(path, "w+");
+        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+        if (fd < 0) {
+            perror("open passwd");
+            return -1;
+        }
+        fp = fdopen(fd, "w");
         if(!fp) {
-            perror("fopen passwd");
+            perror("fdopen passwd");
+            close(fd);
             return -1;
         }
         fprintf(fp, "nobody:x:65534:65534:nobody:/home:/bin/sh\n");
@@ -729,9 +765,15 @@ int create_etc_files(const char *root)
         memset(path, 0, PATH_MAX);
         if (checked_path_join(path, sizeof(path), root, "/etc/group") < 0)
             return -1;
-        fp = fopen(path, "w+");
+        fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+        if (fd < 0) {
+            perror("open group");
+            return -1;
+        }
+        fp = fdopen(fd, "w");
         if(!fp) {
-            perror("fopen group");
+            perror("fdopen group");
+            close(fd);
             return -1;
         }
         fprintf(fp, "nobody:x:65534:\n");

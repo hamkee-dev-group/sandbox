@@ -173,6 +173,50 @@ long_root=$long_root_parent/rootfs
 assert_fails_containing "$long_root" "path too long: $long_root$long_target" "$long_target" --userns
 
 if [ "$(id -u)" -eq 0 ]; then
+	sym_root=$tmp_root/sym-root
+	sym_sentinel=$tmp_root/sym-host-sentinel
+	mkdir -p "$sym_root/usr/bin"
+	printf 'a\n' > "$sym_sentinel"
+	ln -s "$sym_sentinel" "$sym_root/usr/bin/true"
+	set +e
+	sym_output=$(./sandbox "$sym_root" /bin/true --prepare-only 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: prepare-only followed rootfs target symlink"
+		exit 1
+	fi
+	if ! grep -qxF a "$sym_sentinel"; then
+		echo "smoke: prepare-only overwrote host sentinel through target symlink"
+		echo "$sym_output"
+		exit 1
+	fi
+
+	parent_sym_root=$tmp_root/parent-sym-root
+	parent_sym_host=$tmp_root/parent-sym-host
+	parent_sym_sentinel=$tmp_root/parent-sym-sentinel
+	mkdir -p "$parent_sym_root" "$parent_sym_host"
+	printf 'a\n' > "$parent_sym_sentinel"
+	ln -s "$parent_sym_host" "$parent_sym_root/usr"
+	set +e
+	parent_sym_output=$(./sandbox "$parent_sym_root" /bin/true --prepare-only 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: prepare-only followed rootfs parent symlink"
+		exit 1
+	fi
+	if [ -e "$parent_sym_host/bin/true" ]; then
+		echo "smoke: prepare-only wrote through rootfs parent symlink"
+		echo "$parent_sym_output"
+		exit 1
+	fi
+	if ! grep -qxF a "$parent_sym_sentinel"; then
+		echo "smoke: prepare-only changed parent symlink sentinel"
+		echo "$parent_sym_output"
+		exit 1
+	fi
+
 	prepare_root=$tmp_root/prepare
 	prepare_output=$(./sandbox "$prepare_root" /bin/false --prepare-only)
 
