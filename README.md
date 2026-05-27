@@ -49,7 +49,7 @@
 These are the host-side tools `sandbox` itself invokes at runtime. For the separate list of binaries that shell mode, target mode, and prepare-only mode **copy** from the host into the rootfs (a different kind of dependency), see **Shell-mode rootfs inventory** and **Target-mode rootfs inventory** below.
 
 - **Root privileges** — required for all modes except `--userns` (namespaces, chroot, mounts).
-- **`ldd` on the host `PATH`** — required in every mode. `copy_ldd_deps()` invokes it via `execlp("ldd", "ldd", bin, ...)` (`sandbox.c:258-264`), so any location on `PATH` works. Used in both target mode and shell mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
+- **`/usr/bin/ldd`** — required in every mode. `copy_ldd_deps()` invokes this absolute host path via `execl("/usr/bin/ldd", "ldd", bin, ...)`; `PATH` is not used for dependency discovery. Used in both target mode and shell mode to discover and copy shared-library dependencies. Typically provided by `libc-bin` (Debian/Ubuntu) or `glibc-common` (Fedora/RHEL).
 - **`/usr/bin/strace` — only invoked under `--trace`** — the trace path builds `trace_argv[0] = "/usr/bin/strace"` and runs `sandbox_exec(trace_argv)`, which `execv()`s that exact path inside the rootfs (`sandbox.c:857-886`, `sandbox.c:640-645`). Required on the host only when `--trace` is used; without `--trace` the program never invokes `strace`.
 
   ```bash

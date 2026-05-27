@@ -258,6 +258,27 @@ if [ "$(id -u)" -eq 0 ]; then
 	printf 'not a device\n' > "$bad_dev_root/dev/null"
 	assert_fails_containing "$bad_dev_root" "$bad_dev_root/dev/null exists but is not character device 1:3" /bin/true --prepare-only
 
+	fake_ldd_dir=$tmp_root/fake-ldd-bin
+	fake_ldd_root=$tmp_root/fake-ldd-root
+	fake_ldd_marker=$tmp_root/fake-ldd-ran
+	mkdir -p "$fake_ldd_dir"
+	printf '#!/bin/sh\ntouch "%s"\n' "$fake_ldd_marker" > "$fake_ldd_dir/ldd"
+	chmod +x "$fake_ldd_dir/ldd"
+	set +e
+	fake_ldd_output=$(PATH="$fake_ldd_dir:$PATH" ./sandbox "$fake_ldd_root" /bin/true --prepare-only 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -ne 0 ]; then
+		echo "smoke: prepare-only with fake ldd on PATH failed"
+		echo "$fake_ldd_output"
+		exit 1
+	fi
+	if [ -e "$fake_ldd_marker" ]; then
+		echo "smoke: prepare-only executed fake ldd from PATH"
+		echo "$fake_ldd_output"
+		exit 1
+	fi
+
 	runproof_root=$tmp_root/runproof
 	set +e
 	runproof_output=$(./sandbox "$runproof_root" /bin/true --prepare-only 2>&1)

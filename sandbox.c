@@ -417,7 +417,7 @@ int copy_ldd_deps(const char *bin, const char *root)
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
-        execlp("ldd", "ldd", bin, (char *)NULL);
+        execl("/usr/bin/ldd", "ldd", bin, (char *)NULL);
         fprintf(stderr, "ldd exec failed for %s: %s\n", bin, strerror(errno));
         _exit(127);
     }
