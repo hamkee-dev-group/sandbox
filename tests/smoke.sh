@@ -303,6 +303,60 @@ if [ "$(id -u)" -eq 0 ]; then
 		exit 1
 	fi
 
+	seccomp_src=$tmp_root/seccomp-socket.c
+	seccomp_helper=$tmp_root/seccomp-socket
+	seccomp_compile_log=$tmp_root/seccomp-socket.compile
+	cat > "$seccomp_src" <<'EOF'
+#include <sys/socket.h>
+#include <unistd.h>
+
+int main(void)
+{
+	int fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0)
+		return 1;
+	close(fd);
+	return 0;
+}
+EOF
+	seccomp_compiler=
+	for cc_candidate in ${CC:-} cc gcc; do
+		if [ -z "$cc_candidate" ] || ! command -v "$cc_candidate" >/dev/null 2>&1; then
+			continue
+		fi
+		set +e
+		"$cc_candidate" "$seccomp_src" -o "$seccomp_helper" 2>"$seccomp_compile_log"
+		status=$?
+		set -e
+		if [ "$status" -eq 0 ]; then
+			seccomp_compiler=$cc_candidate
+			break
+		fi
+	done
+	if [ -z "$seccomp_compiler" ]; then
+		echo "smoke: failed to compile seccomp socket helper"
+		cat "$seccomp_compile_log"
+		exit 1
+	fi
+	seccomp_root=$tmp_root/seccomp-socket-root
+	set +e
+	seccomp_output=$(./sandbox "$seccomp_root" "$seccomp_helper" 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: seccomp socket helper succeeded"
+		echo "$seccomp_output"
+		exit 1
+	fi
+	case $seccomp_output in
+		*"[sandbox killed by signal "*) ;;
+		*)
+			echo "smoke: seccomp socket helper was not killed by seccomp"
+			echo "$seccomp_output"
+			exit 1
+			;;
+	esac
+
 	if [ -x /usr/bin/strace ]; then
 		trace_replay_root=$tmp_root/trace-replay
 		trace_host_only=$tmp_root/trace-host-only
