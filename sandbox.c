@@ -985,6 +985,65 @@ static int strace_line_failed(const char *line)
     return *p == '\0' || *p == '\n' || *p == ' ' || *p == '\t';
 }
 
+static int strace_syscall_name_is(const char *start, size_t len, const char *name)
+{
+    return strlen(name) == len && strncmp(start, name, len) == 0;
+}
+
+static int strace_line_has_open_write_flags(const char *line)
+{
+    return strstr(line, "O_WRONLY") || strstr(line, "O_RDWR") ||
+           strstr(line, "O_CREAT") || strstr(line, "O_TRUNC") ||
+           strstr(line, "O_APPEND");
+}
+
+static int strace_line_is_mutating(const char *line)
+{
+    const char *paren = strchr(line, '(');
+    const char *start = paren;
+    size_t len;
+
+    if (!paren)
+        return 0;
+    while (start > line) {
+        char c = start[-1];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_'))
+            break;
+        start--;
+    }
+    len = (size_t)(paren - start);
+    if (len == 0)
+        return 0;
+
+    if (strace_syscall_name_is(start, len, "open") ||
+        strace_syscall_name_is(start, len, "openat") ||
+        strace_syscall_name_is(start, len, "openat2"))
+        return strace_line_has_open_write_flags(line);
+
+    return strace_syscall_name_is(start, len, "creat") ||
+           strace_syscall_name_is(start, len, "rename") ||
+           strace_syscall_name_is(start, len, "renameat") ||
+           strace_syscall_name_is(start, len, "renameat2") ||
+           strace_syscall_name_is(start, len, "unlink") ||
+           strace_syscall_name_is(start, len, "unlinkat") ||
+           strace_syscall_name_is(start, len, "mkdir") ||
+           strace_syscall_name_is(start, len, "mkdirat") ||
+           strace_syscall_name_is(start, len, "rmdir") ||
+           strace_syscall_name_is(start, len, "chmod") ||
+           strace_syscall_name_is(start, len, "fchmodat") ||
+           strace_syscall_name_is(start, len, "chown") ||
+           strace_syscall_name_is(start, len, "lchown") ||
+           strace_syscall_name_is(start, len, "fchownat") ||
+           strace_syscall_name_is(start, len, "link") ||
+           strace_syscall_name_is(start, len, "linkat") ||
+           strace_syscall_name_is(start, len, "symlink") ||
+           strace_syscall_name_is(start, len, "symlinkat") ||
+           strace_syscall_name_is(start, len, "mknod") ||
+           strace_syscall_name_is(start, len, "mknodat") ||
+           strace_syscall_name_is(start, len, "truncate");
+}
+
 int trace_main(void *arg)
 {
     (void)arg;
@@ -1374,6 +1433,8 @@ int main(int argc, char **argv)
         char line[PATH_MAX];
         while (fgets(line, sizeof(line), fp)) {
             if (strace_line_failed(line))
+                continue;
+            if (strace_line_is_mutating(line))
                 continue;
             char *quote1 = strchr(line, '"');
             if (!quote1)

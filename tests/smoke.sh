@@ -382,6 +382,26 @@ EOF
 			echo "smoke: trace replay copied failed strace path"
 			exit 1
 		fi
+
+		trace_mutating_root=$tmp_root/trace-mutating
+		trace_mutating_path=/tmp/sandbox-trace-mutating-$$
+		rm -f "$trace_mutating_path"
+		printf 'host original\n' > "$trace_mutating_path"
+		set +e
+		trace_mutating_output=$(./sandbox "$trace_mutating_root" /bin/sh --trace -c "printf 'sandbox made\n' > '$trace_mutating_path'" 2>&1)
+		status=$?
+		set -e
+		rm -f "$trace_mutating_path"
+		if [ "$status" -ne 0 ]; then
+			echo "smoke: trace mutating write returned unexpected status $status"
+			echo "$trace_mutating_output"
+			exit 1
+		fi
+		if ! grep -qxF 'sandbox made' "$trace_mutating_root$trace_mutating_path"; then
+			echo "smoke: trace replay overwrote sandbox-authored file"
+			echo "$trace_mutating_output"
+			exit 1
+		fi
 	else
 		echo "smoke: skipping trace replay check (/usr/bin/strace missing)"
 	fi
