@@ -964,6 +964,25 @@ int install_seccomp_filter(void)
 #endif
 }
 
+int close_inherited_fds(void)
+{
+#if defined(__NR_close_range)
+    if (syscall(__NR_close_range, 3U, ~0U, 0U) == 0)
+        return 0;
+    if (errno != ENOSYS && errno != EINVAL)
+    {
+        perror("close_range");
+        return -1;
+    }
+#endif
+    long max_fd = sysconf(_SC_OPEN_MAX);
+    if (max_fd < 0)
+        max_fd = 1024;
+    for (int fd = 3; fd < max_fd; fd++)
+        close(fd);
+    return 0;
+}
+
 static char *trace_argv[64];
 
 static int strace_line_failed(const char *line)
@@ -1067,6 +1086,8 @@ int sandbox_main(void *arg)
 
     if (setup_sandbox_environment() < 0)
         return 1;
+    if (close_inherited_fds() < 0)
+        return 1;
     if (install_seccomp_filter() < 0)
         return 1;
 
@@ -1093,6 +1114,8 @@ int sandbox_main(void *arg)
 int sandbox_exec(char *const argv[])
 {
     if (setup_sandbox_environment() < 0)
+        return 1;
+    if (close_inherited_fds() < 0)
         return 1;
      
     execv(argv[0], argv);

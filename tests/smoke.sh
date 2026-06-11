@@ -357,6 +357,27 @@ EOF
 			;;
 	esac
 
+	fd_sentinel=$tmp_root/fd-sentinel
+	fd_root=$tmp_root/fd-root
+	printf 'host-original' > "$fd_sentinel"
+	set +e
+	fd_output=$(
+		exec 3<>"$fd_sentinel"
+		./sandbox "$fd_root" /bin/sh -c "printf 'sandbox-write\n' >&3" 2>&1
+	)
+	status=$?
+	set -e
+	if ! printf 'host-original' | cmp -s "$fd_sentinel" -; then
+		echo "smoke: inherited fd write changed host sentinel"
+		echo "$fd_output"
+		exit 1
+	fi
+	if [ "$status" -eq 0 ]; then
+		echo "smoke: inherited fd write unexpectedly succeeded"
+		echo "$fd_output"
+		exit 1
+	fi
+
 	if [ -x /usr/bin/strace ]; then
 		trace_replay_root=$tmp_root/trace-replay
 		trace_host_only=$tmp_root/trace-host-only
