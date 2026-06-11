@@ -313,10 +313,57 @@ int mkdir_p(const char *path, mode_t mode)
     return 0;
 }
 
+int open_temp_for_destination(const char *dst, mode_t mode, char *tmp_path, size_t tmp_path_sz)
+{
+    char *tmp;
+    char *dir;
+    int fd;
+    int n;
+
+    tmp = strdup(dst);
+    if (!tmp)
+        return -1;
+    dir = dirname(tmp);
+    n = snprintf(tmp_path, tmp_path_sz, "%s/.sandbox-tmp-XXXXXX", dir);
+    free(tmp);
+    if (n < 0 || n >= (int)tmp_path_sz) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    fd = mkstemp(tmp_path);
+    if (fd < 0)
+        return -1;
+    if (fchmod(fd, mode) < 0) {
+        int saved_errno = errno;
+        close(fd);
+        unlink(tmp_path);
+        errno = saved_errno;
+        return -1;
+    }
+    return fd;
+}
+
+int replace_destination(const char *tmp_path, const char *dst)
+{
+    struct stat st;
+
+    if (lstat(dst, &st) < 0) {
+        if (errno != ENOENT)
+            return -1;
+    } else if (S_ISLNK(st.st_mode)) {
+        errno = ELOOP;
+        return -1;
+    }
+
+    return rename(tmp_path, dst);
+}
+
 int copy_file(const char *src, const char *dst)
 {
     int in, out;
     char *tmp;
+    char tmp_path[PATH_MAX];
     char buf[8192];
     ssize_t n;
 
@@ -349,7 +396,7 @@ int copy_file(const char *src, const char *dst)
     }
     free(tmp);
 
-    out = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0755);
+    out = open_temp_for_destination(dst, 0755, tmp_path, sizeof(tmp_path));
     if (out < 0)
     {
         int saved_errno = errno;
@@ -369,7 +416,8 @@ int copy_file(const char *src, const char *dst)
                     saved_errno = EIO;
                 fprintf(stderr, "copy_file: failed to write %s -> %s: %s\n", src, dst, strerror(saved_errno));
                 close(in); 
-                close(out); 
+                close(out);
+                unlink(tmp_path);
                 errno = saved_errno;
                 return -1; 
             }
@@ -381,11 +429,27 @@ int copy_file(const char *src, const char *dst)
         fprintf(stderr, "copy_file: failed to read %s -> %s: %s\n", src, dst, strerror(saved_errno));
         close(in);
         close(out);
+        unlink(tmp_path);
+        errno = saved_errno;
+        return -1;
+    }
+    if (close(out) < 0) {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to write %s -> %s: %s\n", src, dst, strerror(saved_errno));
+        close(in);
+        unlink(tmp_path);
+        errno = saved_errno;
+        return -1;
+    }
+    if (replace_destination(tmp_path, dst) < 0) {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to replace %s -> %s: %s\n", src, dst, strerror(saved_errno));
+        close(in);
+        unlink(tmp_path);
         errno = saved_errno;
         return -1;
     }
     close(in);
-    close(out);
     if (prepare_only)
         printf("copied %s -> %s\n", src, dst);
     return 0;
@@ -736,6 +800,7 @@ int create_dev_nodes(const char *root)
 int create_etc_files(const char *root)
 {
     char path[PATH_MAX];
+    char tmp_path[PATH_MAX];
     FILE *fp;
     if (checked_path_join(path, sizeof(path), root, "/etc") < 0)
         return -1;
@@ -748,7 +813,7 @@ int create_etc_files(const char *root)
         memset(path, 0, PATH_MAX);
         if (checked_path_join(path, sizeof(path), root, "/etc/passwd") < 0)
             return -1;
-        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+        int fd = open_temp_for_destination(path, 0644, tmp_path, sizeof(tmp_path));
         if (fd < 0) {
             perror("open passwd");
             return -1;
@@ -757,15 +822,25 @@ int create_etc_files(const char *root)
         if(!fp) {
             perror("fdopen passwd");
             close(fd);
+            unlink(tmp_path);
             return -1;
         }
         fprintf(fp, "nobody:x:65534:65534:nobody:/home:/bin/sh\n");
-        fclose(fp);
+        if (fclose(fp) < 0) {
+            perror("write passwd");
+            unlink(tmp_path);
+            return -1;
+        }
+        if (replace_destination(tmp_path, path) < 0) {
+            perror("rename passwd");
+            unlink(tmp_path);
+            return -1;
+        }
         
         memset(path, 0, PATH_MAX);
         if (checked_path_join(path, sizeof(path), root, "/etc/group") < 0)
             return -1;
-        fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+        fd = open_temp_for_destination(path, 0644, tmp_path, sizeof(tmp_path));
         if (fd < 0) {
             perror("open group");
             return -1;
@@ -774,10 +849,20 @@ int create_etc_files(const char *root)
         if(!fp) {
             perror("fdopen group");
             close(fd);
+            unlink(tmp_path);
             return -1;
         }
         fprintf(fp, "nobody:x:65534:\n");
-        fclose(fp);
+        if (fclose(fp) < 0) {
+            perror("write group");
+            unlink(tmp_path);
+            return -1;
+        }
+        if (replace_destination(tmp_path, path) < 0) {
+            perror("rename group");
+            unlink(tmp_path);
+            return -1;
+        }
     }
     return 0;
 }

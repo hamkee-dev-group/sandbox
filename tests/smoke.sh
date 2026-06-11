@@ -173,6 +173,26 @@ long_root=$long_root_parent/rootfs
 assert_fails_containing "$long_root" "path too long: $long_root$long_target" "$long_target" --userns
 
 if [ "$(id -u)" -eq 0 ]; then
+	hardlink_root=$tmp_root/hardlink-root
+	hardlink_sentinel=$tmp_root/hardlink-host-sentinel
+	mkdir -p "$hardlink_root/usr/bin"
+	printf 'a\n' > "$hardlink_sentinel"
+	ln "$hardlink_sentinel" "$hardlink_root/usr/bin/true"
+	set +e
+	hardlink_output=$(./sandbox "$hardlink_root" /bin/true --prepare-only 2>&1)
+	status=$?
+	set -e
+	if [ "$status" -ne 0 ]; then
+		echo "smoke: prepare-only with rootfs target hardlink failed"
+		echo "$hardlink_output"
+		exit 1
+	fi
+	if ! grep -qxF a "$hardlink_sentinel"; then
+		echo "smoke: prepare-only overwrote host sentinel through target hardlink"
+		echo "$hardlink_output"
+		exit 1
+	fi
+
 	sym_root=$tmp_root/sym-root
 	sym_sentinel=$tmp_root/sym-host-sentinel
 	mkdir -p "$sym_root/usr/bin"
