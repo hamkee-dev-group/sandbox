@@ -399,6 +399,27 @@ EOF
 	fi
 
 	if [ -x /usr/bin/strace ]; then
+		trace_readlink=$(command -v readlink)
+		trace_parent_netns=$("$trace_readlink" /proc/self/ns/net)
+		trace_netns_root=$tmp_root/trace-netns
+		set +e
+		trace_netns_output=$(./sandbox "$trace_netns_root" "$trace_readlink" --trace /proc/self/ns/net 2>&1)
+		status=$?
+		set -e
+		if [ "$status" -ne 0 ]; then
+			echo "smoke: trace net namespace check returned unexpected status $status"
+			echo "$trace_netns_output"
+			exit 1
+		fi
+		trace_child_netns=$(printf '%s\n' "$trace_netns_output" | sed -n 's/.*\(net:\[[0-9][0-9]*\]\).*/\1/p' | tail -n 1)
+		if [ -z "$trace_child_netns" ] || [ "$trace_child_netns" = "$trace_parent_netns" ]; then
+			echo "smoke: trace shared parent network namespace"
+			echo "parent: $trace_parent_netns"
+			echo "child: $trace_child_netns"
+			echo "$trace_netns_output"
+			exit 1
+		fi
+
 		trace_replay_root=$tmp_root/trace-replay
 		trace_host_only=$tmp_root/trace-host-only
 		printf 'host only\n' > "$trace_host_only"

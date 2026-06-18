@@ -1434,6 +1434,8 @@ int main(int argc, char **argv)
             return 1;
         }
         int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
+        if (!userns_mode)
+            flags |= CLONE_NEWNET;
         if (userns_mode) {
             flags |= CLONE_NEWUSER;
             if (pipe(userns_pipe) < 0) { perror("pipe"); return 1; }
@@ -1517,7 +1519,7 @@ int main(int argc, char **argv)
         for (int k = trace_idx + 1; k < argc; ++k)
             trace_argv[j++] = argv[k];
         trace_argv[j] = NULL;
-        int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
+        int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWNET | SIGCHLD;
         pid_t pid = clone(trace_main, child_stack + STACK_SIZE, flags, NULL);
         if (pid < 0) {
             perror("clone");
@@ -1570,6 +1572,8 @@ int main(int argc, char **argv)
 
     
     int flags = CLONE_NEWUTS | CLONE_NEWPID | CLONE_NEWNS | SIGCHLD;
+    if (!userns_mode)
+        flags |= CLONE_NEWNET;
     if (userns_mode) {
         flags |= CLONE_NEWUSER;
         if (pipe(userns_pipe) < 0) { perror("pipe"); return 1; }
