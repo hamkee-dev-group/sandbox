@@ -399,6 +399,66 @@ EOF
 	fi
 
 	if [ -x /usr/bin/strace ]; then
+		trace_leaks_since() {
+			marker=$1
+			find /tmp -maxdepth 1 -type f -name 'strace??????' -user "$(id -u)" -newer "$marker" -print
+		}
+
+		trace_success_leak_marker=$tmp_root/trace-success-leak-marker
+		trace_success_leak_root=$tmp_root/trace-success-leak
+		: > "$trace_success_leak_marker"
+		sleep 1
+		set +e
+		trace_success_leak_output=$(./sandbox "$trace_success_leak_root" /bin/true --trace 2>&1)
+		status=$?
+		set -e
+		if [ "$status" -ne 0 ]; then
+			echo "smoke: trace leak success run returned unexpected status $status"
+			echo "$trace_success_leak_output"
+			exit 1
+		fi
+		trace_success_leaks=$(trace_leaks_since "$trace_success_leak_marker")
+		if [ -n "$trace_success_leaks" ]; then
+			echo "smoke: trace success leaked host strace tempfiles"
+			echo "$trace_success_leaks"
+			exit 1
+		fi
+
+		trace_many_leak_marker=$tmp_root/trace-many-leak-marker
+		trace_many_leak_root=$tmp_root/trace-many-leak
+		trace_many_args=
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+		    21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 \
+		    41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57; do
+			trace_many_args="$trace_many_args x"
+		done
+		: > "$trace_many_leak_marker"
+		sleep 1
+		set +e
+		# shellcheck disable=SC2086
+		trace_many_leak_output=$(./sandbox "$trace_many_leak_root" /bin/true --trace $trace_many_args 2>&1)
+		status=$?
+		set -e
+		if [ "$status" -eq 0 ]; then
+			echo "smoke: trace too-many-arguments unexpectedly succeeded"
+			echo "$trace_many_leak_output"
+			exit 1
+		fi
+		case $trace_many_leak_output in
+			*"Too many arguments for --trace"*) ;;
+			*)
+				echo "smoke: trace too-many-arguments error mismatch"
+				echo "$trace_many_leak_output"
+				exit 1
+				;;
+		esac
+		trace_many_leaks=$(trace_leaks_since "$trace_many_leak_marker")
+		if [ -n "$trace_many_leaks" ]; then
+			echo "smoke: trace too-many-arguments leaked host strace tempfiles"
+			echo "$trace_many_leaks"
+			exit 1
+		fi
+
 		trace_readlink=$(command -v readlink)
 		trace_parent_netns=$("$trace_readlink" /proc/self/ns/net)
 		trace_netns_root=$tmp_root/trace-netns

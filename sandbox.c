@@ -1488,14 +1488,6 @@ int main(int argc, char **argv)
     }
 
     if (trace_mode) {
-        char tmpfile[] = "/tmp/straceXXXXXX";
-        int fd = mkstemp(tmpfile);
-        if (fd < 0) {
-            perror("mkstemp");
-            return 1;
-        }
-        close(fd);
-
         int num_trace_args = argc - (trace_idx + 1);
         if (num_trace_args + 8 > 64) {
             fprintf(stderr, "Too many arguments for --trace (max %d)\n", 64 - 8);
@@ -1506,6 +1498,20 @@ int main(int argc, char **argv)
             if (checked_path_copy(trace_target, sizeof(trace_target), target) < 0)
                 return 1;
         } else if (build_usr_bin_target_path(trace_target, sizeof(trace_target), target_name) < 0) {
+            return 1;
+        }
+        char tmpfile[PATH_MAX] = "/tmp/straceXXXXXX";
+        char strace_path[PATH_MAX];
+        if (checked_path_join(strace_path, sizeof(strace_path), rootfs, tmpfile) < 0)
+            return 1;
+        int fd = mkstemp(strace_path);
+        if (fd < 0) {
+            perror("mkstemp");
+            return 1;
+        }
+        close(fd);
+        if (checked_path_copy(tmpfile, sizeof(tmpfile), strace_path + strlen(rootfs)) < 0) {
+            unlink(strace_path);
             return 1;
         }
         trace_argv[0] = "/usr/bin/strace";
@@ -1523,6 +1529,7 @@ int main(int argc, char **argv)
         pid_t pid = clone(trace_main, child_stack + STACK_SIZE, flags, NULL);
         if (pid < 0) {
             perror("clone");
+            unlink(strace_path);
             return 1;
         }
         int status;
@@ -1531,13 +1538,11 @@ int main(int argc, char **argv)
             fprintf(stderr, "[sandbox --trace exited with %d]\n", WEXITSTATUS(status));
         else if (WIFSIGNALED(status))
             fprintf(stderr, "[sandbox --trace killed by signal %d]\n", WTERMSIG(status));
-        char strace_path[PATH_MAX];
-        if (checked_path_join3(strace_path, sizeof(strace_path), rootfs, "/", tmpfile) < 0)
-            return 1;
 
         FILE *fp = fopen(strace_path, "r");
         if (!fp) {
             perror("fopen trace");
+            unlink(strace_path);
             return 1;
         }
         char line[PATH_MAX];
