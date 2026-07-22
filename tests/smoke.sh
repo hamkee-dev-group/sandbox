@@ -569,6 +569,7 @@ EOF
 	mkdir -p "$extras_src/etc"
 	printf 'payload bytes\n' > "$extras_src/payload.txt"
 	printf 'app config\n' > "$extras_src/etc/app.conf"
+	chmod 0600 "$extras_src/etc/app.conf"
 	printf '%s\n' \
 		"/bin/echo" \
 		"payload.txt" \
@@ -587,6 +588,10 @@ EOF
 	fi
 	if ! cmp -s "$extras_src/etc/app.conf" "$extras_root/etc/app.conf"; then
 		echo "smoke: prepare-only extras did not copy nested relative file"
+		exit 1
+	fi
+	if [ "$(stat -c '%a' "$extras_root/etc/app.conf")" != 600 ]; then
+		echo "smoke: prepare-only extras did not preserve private file mode"
 		exit 1
 	fi
 	if [ ! -d "$extras_root/var/run/iouringd" ]; then

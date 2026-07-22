@@ -362,6 +362,7 @@ int replace_destination(const char *tmp_path, const char *dst)
 int copy_file(const char *src, const char *dst)
 {
     int in, out;
+    struct stat st;
     char *tmp;
     char tmp_path[PATH_MAX];
     char buf[8192];
@@ -373,6 +374,14 @@ int copy_file(const char *src, const char *dst)
     {
         int saved_errno = errno;
         fprintf(stderr, "copy_file: failed to open %s -> %s: %s\n", src, dst, strerror(saved_errno));
+        errno = saved_errno;
+        return -1;
+    }
+    if (fstat(in, &st) < 0)
+    {
+        int saved_errno = errno;
+        fprintf(stderr, "copy_file: failed to inspect %s -> %s: %s\n", src, dst, strerror(saved_errno));
+        close(in);
         errno = saved_errno;
         return -1;
     }
@@ -396,7 +405,7 @@ int copy_file(const char *src, const char *dst)
     }
     free(tmp);
 
-    out = open_temp_for_destination(dst, 0755, tmp_path, sizeof(tmp_path));
+    out = open_temp_for_destination(dst, st.st_mode & 0777, tmp_path, sizeof(tmp_path));
     if (out < 0)
     {
         int saved_errno = errno;
